@@ -1,0 +1,5 @@
+- 👋 Hi, I’m @hamzajmah
+- 👀 I’m interested in tech
+- 🌱 I’m currently learning Data Analyics
+- 💞️ I’m looking to collaborate on new Projects to learn as much i can 
+- 📫 How to reach me just msg me here!
