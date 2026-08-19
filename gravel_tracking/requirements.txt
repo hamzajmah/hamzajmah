@@ -1,0 +1,15 @@
+# Bibliotheken gepinnt. Reproduzierbarkeit geht vor Aktualitaet.
+pandas==3.0.5
+openpyxl==3.1.5
+pydantic==2.13.4
+PyYAML==6.0.1
+pdfplumber==0.11.10
+cffi==2.1.1
+
+# Nur fuer Entwicklung und Pruefung
+pytest==9.1.1
+ruff==0.16.3
+mypy==1.18.2
+
+# OCR wird ueber das Kommandozeilenwerkzeug ocrmypdf eingebunden (Eskalationsstufen 1 und 2).
+# Installation ausserhalb von pip, z.B. apt-get install ocrmypdf tesseract-ocr-deu

@@ -1,0 +1,13 @@
+# Eingangsdaten und Laufergebnisse bleiben ausserhalb der Versionsverwaltung.
+# Sie enthalten Projekt-, Lieferanten- und Personendaten.
+data/
+work/
+outputs/
+METHOD.md
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.tmp

@@ -1,0 +1,50 @@
+# Umrechnung Tonnen -> Kubikmeter.
+# Regel: Ohne Quelle kein Faktor. Jeder Faktor traegt confidence.
+#   confidence: measured   -> aus Projektbeleg (Lieferantendatenblatt, Beleg mit t UND m3)
+#   confidence: assumption -> Literaturbandbreite, projektspezifisch NICHT belegt
+# Vergleich zum LV erfolgt ausschliesslich gegen delivered_m3_installed.
+
+defaults:
+  sensitivity_pct: 10.0
+
+factors:
+  mineral_mixture_0_8:
+    material_class: mineral_mixture
+    grain_size: "0/8"
+    bulk_density_t_per_m3: 1.65
+    installed_density_t_per_m3: 2.00
+    compaction_factor: 1.21
+    source: "Literaturbandbreite Abschnitt 6 Auftragsprompt (1,5-1,7 lose / 1,9-2,1 eingebaut)"
+    confidence: assumption
+  mineral_mixture_0_22:
+    material_class: mineral_mixture
+    grain_size: "0/22"
+    bulk_density_t_per_m3: 1.60
+    installed_density_t_per_m3: 2.05
+    compaction_factor: 1.28
+    source: "Literaturbandbreite Abschnitt 6 Auftragsprompt"
+    confidence: assumption
+  mineral_mixture_0_45:
+    material_class: mineral_mixture
+    grain_size: "0/45"
+    bulk_density_t_per_m3: 1.60
+    installed_density_t_per_m3: 2.00
+    compaction_factor: 1.25
+    source: "Literaturbandbreite Abschnitt 6 Auftragsprompt, FSS"
+    confidence: assumption
+  mineral_mixture_50_200:
+    material_class: mineral_mixture
+    grain_size: "50/200"
+    bulk_density_t_per_m3: 1.55
+    installed_density_t_per_m3: 1.85
+    compaction_factor: 1.19
+    source: "Literaturbandbreite Abschnitt 6 Auftragsprompt, Schroppen/Porphyr"
+    confidence: assumption
+  sand_0_2:
+    material_class: sand
+    grain_size: "0/2"
+    bulk_density_t_per_m3: 1.50
+    installed_density_t_per_m3: 1.75
+    compaction_factor: 1.17
+    source: "Literaturbandbreite Abschnitt 6 Auftragsprompt, Kabelsand"
+    confidence: assumption

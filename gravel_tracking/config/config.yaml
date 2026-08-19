@@ -1,0 +1,72 @@
+# Gravel tracking pipeline - Projektkonfiguration
+# Alle Pfade relativ zum Projektwurzelverzeichnis (gravel_tracking/).
+
+project:
+  name: "24 DE TRANSNETBW Suedlink Eschwege"
+  program_id: "24 DE TRANSNETBW Suedlink Eschwege"
+  client: "TransnetBW GmbH"
+  contractor: "Denys GmbH (Leistungsgemeinschaft SuedLink, Los 4)"
+  erp_system: "IFS"
+  site: "1048A"
+  period_start: "2026-01-01"
+  period_end: "2026-08-31"
+
+suppliers:
+  - id: baustoff_vertrieb_fulda_werra
+    name: "BAUSTOFF VERTRIEB FULDA WERRA GMBH"
+    erp_sender_match: "BAUSTOFF VERTRIEB FULDA WERRA"
+    template: "config/supplier_templates/baustoff_vertrieb_fulda_werra.yaml"
+
+paths:
+  pdf_root: "data/gravel_deliveries"      # Lieferscheine/Rechnungen als PDF (aktuell leer)
+  erp_exports: "data/erp"                 # IFS Wareneingangsexporte (.xlsx)
+  lv_file: ""                             # <<Aufmass/LV Excel - liegt noch nicht vor>>
+  work_dir: "work"
+  output_dir: "outputs"
+
+# Bereichsmodell: leitet sich aus IFS Sub Project ab, solange keine PDF-Ordner existieren.
+areas:
+  # Ordnername (PDF) bzw. Sub Project ID (ERP) -> Bereichsklasse
+  classes:
+    section: "^AS04S-3-\\d+$"             # Trassenabschnitte
+    crossing: "^QR ?- ?\\d+$"             # Querungen
+    general: "^GENERAL$"                  # nicht bereichsscharf gebucht
+  unassigned_label: "GENERAL"
+  folder_wins_over_document: true         # Abschnitt 3 des Auftragsprompts
+
+# Materialklassifikation: nur diese Klassen zaehlen als Schotterlieferung.
+materials:
+  supply_classes:
+    - mineral_mixture
+    - sand
+  # Annahme/Entsorgung (Erdaushub, Bohrklein) -> eigene Kennzahl, keine Lieferung
+  disposal_keywords: ["Annahme"]
+  # Zuschlaege tragen Tonnen nur als Abrechnungsbasis -> nie als Liefermenge zaehlen
+  surcharge_keywords: ["zuschlag", "Frachtkosten", "Frachtkostenausgleich"]
+
+plausibility:
+  quantity_t_min: 5.0
+  quantity_t_max: 32.0
+  price_median_deviation_pct: 25.0
+  review_share_threshold_pct: 5.0
+
+extraction:
+  min_confidence: 0.80
+  min_text_chars_per_page: 120
+  ocr_language: "deu"
+  llm_enabled: false                      # keine LLM-Anbindung konfiguriert -> Stufen 3/4 parken
+
+budget:
+  max_runtime_minutes: 240
+  max_llm_calls: 1500
+  max_cost_eur: 0.0
+  max_attempts_per_task: 3
+  max_escalation_level: 5
+  checkpoint_every: 25
+  abort_error_rate_window: 50
+  abort_error_rate_pct: 30
+  abort_same_error_streak: 5
+
+powerbi:
+  sharepoint_path: ""                     # <<SharePoint Zielordner>>
+  workbook: "outputs/powerbi/gravel_model.xlsx"

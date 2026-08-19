@@ -1,0 +1,15 @@
+# Deterministische Parsingvorlage. Anker dienen der Erkennung, Regex der Extraktion.
+supplier_id: baustoff_vertrieb_fulda_werra
+supplier_name: "BAUSTOFF VERTRIEB FULDA WERRA GMBH"
+anchors:
+  - "BAUSTOFF VERTRIEB"
+  - "FULDA WERRA"
+  - "Lieferschein"
+patterns:
+  delivery_note_no: "(?:Lieferschein(?:\\s*-?\\s*Nr\\.?)?|LS)\\s*[:.]?\\s*([0-9]{4,12})"
+  delivery_date: "(\\d{2})[.](\\d{2})[.](\\d{4})"
+  quantity_t: "([0-9]{1,3}[.,][0-9]{1,3})\\s*(?:t|to|Tonnen)\\b"
+  quantity_m3: "([0-9]{1,4}[.,][0-9]{1,3})\\s*(?:m3|m³)\\b"
+  order_no: "(?:Bestell(?:ung)?|Auftrag)[^0-9]{0,12}([A-Z]?[0-9]{6,12})"
+  vehicle_id: "\\b([A-Z]{1,3}-[A-Z]{1,2}\\s?[0-9]{1,4})\\b"
+  material_text: "(Mineralgemisch[^\\n]{0,60}|Sand[^\\n]{0,40}|Schotter[^\\n]{0,40}|Splitt[^\\n]{0,40})"
