@@ -6,6 +6,7 @@ from . import (
     extract_erp,
     extract_pdf,
     inventory,
+    invoices,
     locations,
     lv_match,
     master_data,
@@ -25,6 +26,7 @@ HANDLERS = {
     "locations": locations.run,
     "lv_match": lv_match.run,
     "reconcile": reconcile.run,
+    "invoices": invoices.run,
     "build_model": model_build.run,
     "report": report.run,
 }
