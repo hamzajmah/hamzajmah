@@ -1,29 +1,56 @@
 # Zuordnung LV Position <-> geliefertes Material.
 #
-# STATUS: VORSCHLAG. Diese Zuordnung ist fachlich freizugeben. Sie entscheidet,
-# gegen welche LV Menge eine Lieferung verglichen wird, und bestimmt damit das
-# Delta staerker als jede Umrechnung. Bis zur Freigabe steht sie in DECISIONS.md.
-status: vorschlag
-approved_by: ""
-approved_on: ""
+# Die Materialzuordnung wurde am 2026-08-19 von der Bauleitung bestaetigt:
+#   0/8   Kalkstein  -> Bettungsmaterial
+#   0/22  Kalkstein  -> Bettungsmaterial
+#   0/45  FSS        -> Schotter, Tragschichten
+#   50/200 Porphyr   -> Schotter, unter anderem Arbeitsplattformen der HDD Bohrungen
+#   Sand 0/2         -> ausschliesslich Muffengruben
+# Offen bleibt die Behandlung des Schotters an Querungen, siehe crossing_rule.
+status: bestaetigt_materialzuordnung
+approved_by: "Bauleitung (Materialzuordnung), Zuordnung Querungen offen"
+approved_on: "2026-08-19"
 
 groups:
+  # Reihenfolge zaehlt: die erste passende Regel gewinnt.
+  hdd_platform:
+    label: "Arbeitsplattform Querungsbauwerk, pauschal"
+    match_short_text:
+      - "Baustelleneinrichtung HDD"
+      - "Baustelleneinrichtung vorhalten HDD"
+      - "Baustelleneinrichtung GVT"
+      - "Baustelleneinrichtung vorhalten GVT"
+      - "Baustelleneinrichtung, Pilotrohrvortrieb"
+      - "Baustelleneinrichtung und Vorarbeiten"
+    consumes_delivered_material: true
+    quantity_comparable: false
+    fed_by_materials: ["mineral_mixture 50/200", "mineral_mixture 0/45"]
+    note: >-
+      Die Arbeitsplattformen der Querungsbauwerke sind im LV pauschal vergeben (Einheit PSCH).
+      Der Schotter dafuer ist Kostenposition, keine abrechenbare Menge. Ein Mengenvergleich ist
+      hier nicht moeglich, wohl aber ein Kostenvergleich gegen die Pauschale.
+
   gravel_base_layer:
     label: "Schottertragschicht"
     match_short_text:
       - "Schottertragschicht"
       - "Frostschutzschicht"
     consumes_delivered_material: true
+    quantity_comparable: true
     fed_by_materials: ["mineral_mixture 0/45", "mineral_mixture 50/200"]
-    note: "Baustrassen, Zufahrten, BE Flaechen und Arbeitsstreifen."
+    note: "Baustrassen, Zufahrten, BE Flaechen, Abspulplaetze."
 
   bedding_supplied:
     label: "Bettungsmaterial geliefert und eingebaut"
     match_short_text:
       - "Bettungsmaterial liefern und einbauen"
     consumes_delivered_material: true
-    fed_by_materials: ["mineral_mixture 0/8", "mineral_mixture 0/22"]
-    note: "Leitungszone. Zugekauftes Material, deshalb im Vergleich."
+    quantity_comparable: true
+    fed_by_materials: ["mineral_mixture 0/8", "mineral_mixture 0/22", "sand 0/2"]
+    note: >-
+      Leitungszone. Dieselbe Positionsbezeichnung steht im Kabelgraben (Kapitel 4) und in den
+      Muffengruben (Kapitel 5.1). Getrennt werden beide ueber den Bereich, nicht ueber den Text:
+      Sand 0/2 geht laut Bauleitung ausschliesslich in Muffengruben und wird dort auch gebucht.
 
   bedding_recycled:
     label: "Aufbereitetes Bettungsmaterial"
@@ -35,12 +62,14 @@ groups:
     note: "Aus eigenem Aushub aufbereitet, kein Zukauf. Gehoert nicht in den Lieferabgleich."
 
   sand_cover:
-    label: "Sandabdeckung"
+    label: "Sandabdeckung archaeologische Grabung"
     match_short_text:
       - "Sandabdeckung"
-    consumes_delivered_material: true
-    fed_by_materials: ["sand 0/2"]
-    note: "LV fuehrt diese Position in Tonnen, nicht in Kubikmetern."
+    consumes_delivered_material: false
+    fed_by_materials: []
+    note: >-
+      Diese Position rechnet in Tonnen und ist bisher nicht abgerechnet. Der gelieferte Sand 0/2
+      geht laut Bauleitung ausschliesslich in Muffengruben, deshalb ist ihr kein Material zugeordnet.
 
   soil_backfill:
     label: "Rueckverfuellung mit Bodenmaterial"
@@ -58,19 +87,28 @@ material_to_group:
   "mineral_mixture 0/22": bedding_supplied
   "mineral_mixture 0/45": gravel_base_layer
   "mineral_mixture 50/200": gravel_base_layer
-  "sand 0/2": sand_cover
+  "sand 0/2": bedding_supplied
+
+# Ausnahmen nach Bereichsklasse. An Querungsbauwerken dient Tragschichtmaterial
+# der Arbeitsplattform, die im LV pauschal vergeben ist.
+material_group_overrides:
+  status: vorschlag
+  rules: []
 
 # Bereichszuordnung der LV Seite.
-# Abschnitte und Querungsbauwerke stehen im Gliederungspfad und sind belegt.
-# Die uebrigen Kapitel haben im LV keinen Bereich; der Vorschlag ordnet sie dem
-# Sammelbereich GENERAL zu, weil das IFS dieselben Leistungen dort bucht.
 area_fallback:
   status: vorschlag
   rules:
-    - match_group_path: "Baustelleneinrichtungsfl(ä|ae)chen|Baustra(ß|ss)en und Zufahrten|Bodenaufbereitungsfl(ä|ae)chen"
-      area_key: "GENERAL"
+    # Muffen heissen im LV "Muffe Nr.M-C33-007-V0", im IFS "MC33007V0".
+    # Nach Entfernen der Trennzeichen sind beide identisch.
+    - match_group_path: "Muffengruben / Schubgruben"
+      extract_area_from_path: "Muffe\\s*Nr\\.?\\s*([A-Za-z0-9\\-_]+)"
+      area_key_template: "{0}"
+      normalize: alnum_upper
     - match_group_path: "Muffengruben|Schubgruben"
       area_key: "SCHUBGRUB"
+    - match_group_path: "Baustelleneinrichtungsfl(ä|ae)chen|Baustra(ß|ss)en und Zufahrten|Bodenaufbereitungsfl(ä|ae)chen"
+      area_key: "GENERAL"
     - match_group_path: "Abspulpl(ä|ae)tze|Umladefl(ä|ae)chen"
       area_key: "GENERAL"
     # Nachtragstitel nennen die Querung haeufig als Q-Nummer, z.B.

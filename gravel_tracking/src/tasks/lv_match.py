@@ -10,8 +10,7 @@ import csv
 import re
 from pathlib import Path
 
-import yaml
-
+from ..config import load_lv_mapping
 from ..decisions import Decision
 from ..harness import Context, TaskResult
 from ..lv_reader import LvPosition, apply_mapping, read_leistungsmeldung
@@ -22,7 +21,7 @@ LV_COLUMNS = [
     "lv_position_no", "lv_source", "group_path", "short_text", "unit",
     "contract_quantity", "billed_quantity", "progress_pct", "unit_price_eur",
     "contract_value_eur", "billed_value_eur", "area_key", "material_group",
-    "is_gravel_relevant", "timeline_matches_total",
+    "is_gravel_relevant", "quantity_comparable", "timeline_matches_total",
 ]
 LV_MONTHLY_COLUMNS = ["lv_position_no", "area_key", "material_group", "unit", "period_month", "billed_quantity", "billed_value_eur"]
 COMPARISON_COLUMNS = [
@@ -33,14 +32,6 @@ COMPARISON_COLUMNS = [
     "billed_revenue_eur", "records", "records_in_review", "conversion_confidence",
     "in_comparison_period", "data_basis",
 ]
-
-
-def _load_mapping(ctx: Context) -> dict:
-    rel = ctx.cfg["paths"].get("lv_mapping", "")
-    path = (ctx.cfg.root / rel) if rel else None
-    if path is None or not path.is_file():
-        return {}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _apply_area_fallback(positions: list[LvPosition], mapping: dict) -> int:
@@ -57,7 +48,11 @@ def _apply_area_fallback(positions: list[LvPosition], mapping: dict) -> int:
                 found = re.search(extract, position.group_path, re.IGNORECASE)
                 if not found:
                     continue
-                position.area_key = rule["area_key_template"].format(found.group(1))
+                token = found.group(1)
+                if rule.get("normalize") == "alnum_upper":
+                    # "M-C33-007-V0" und "MC33007V0" sind derselbe Schluessel.
+                    token = re.sub(r"[^A-Za-z0-9]", "", token).upper()
+                position.area_key = rule["area_key_template"].format(token)
             else:
                 position.area_key = rule["area_key"]
             touched += 1
@@ -69,7 +64,7 @@ def _read_lv(ctx: Context) -> tuple[list[LvPosition], dict]:
     path = ctx.cfg.path("lv_file")
     if path is None or not path.is_file():
         return [], {}
-    mapping = _load_mapping(ctx)
+    mapping = load_lv_mapping(ctx.cfg)
     positions = read_leistungsmeldung(path, ctx.cfg.get("lv", {}).get("sheets", []))
     apply_mapping(positions, mapping)
     _apply_area_fallback(positions, mapping)
@@ -138,7 +133,7 @@ def _aggregate_delivery(ctx: Context, material_to_group: dict[str, str]) -> dict
 def _aggregate_billing(positions: list[LvPosition]) -> dict[tuple, dict[str, float]]:
     billed: dict[tuple, dict[str, float]] = {}
     for position in positions:
-        if not position.is_gravel_relevant or not position.area_key:
+        if not position.is_gravel_relevant or not position.area_key or not position.quantity_comparable:
             continue
         for month, quantity in position.monthly.items():
             key = (position.area_key, month, position.material_group)
@@ -213,6 +208,7 @@ def _write_lv_files(ctx: Context, positions: list[LvPosition]) -> None:
             "unit_price_eur": p.unit_price_eur, "contract_value_eur": p.contract_value_eur,
             "billed_value_eur": p.billed_value_eur, "area_key": p.area_key,
             "material_group": p.material_group, "is_gravel_relevant": "true" if p.is_gravel_relevant else "false",
+            "quantity_comparable": "true" if p.quantity_comparable else "false",
             "timeline_matches_total": "true" if p.timeline_matches_total else "false",
         }
         for p in positions

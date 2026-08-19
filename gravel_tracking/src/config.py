@@ -56,6 +56,20 @@ def load_conversion_factors(path: str | None = None) -> dict[str, Any]:
     return _read_yaml(cfg_path)
 
 
+@functools.lru_cache(maxsize=8)
+def _load_mapping_file(path: str) -> dict[str, Any]:
+    return _read_yaml(Path(path))
+
+
+def load_lv_mapping(cfg: Config) -> dict[str, Any]:
+    """Zuordnung LV Position zu Material, aus config/lv_mapping.yaml."""
+    rel = cfg["paths"].get("lv_mapping", "")
+    if not rel:
+        return {}
+    path = cfg.root / rel
+    return _load_mapping_file(str(path)) if path.is_file() else {}
+
+
 def load_supplier_templates(cfg: Config) -> list[dict[str, Any]]:
     templates = []
     for supplier in cfg.get("suppliers", []):

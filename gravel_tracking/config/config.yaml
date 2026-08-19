@@ -44,6 +44,7 @@ areas:
   classes:
     section: "^AS04S-3-\\d+$"             # Trassenabschnitte
     crossing: "^QR ?- ?\\d+$"             # Querungen
+    joint_pit: "^(MC\\d+V\\d+|SCHUBGRUB)$"  # Muffengruben und Schubgruben
     general: "^GENERAL$"                  # nicht bereichsscharf gebucht
   unassigned_label: "GENERAL"
   folder_wins_over_document: true         # Abschnitt 3 des Auftragsprompts

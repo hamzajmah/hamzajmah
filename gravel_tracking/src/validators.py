@@ -44,6 +44,11 @@ RECORD_COLUMNS = [
     "price_per_unit",
     "amount_eur",
     "unload_location_text",
+    "location_type",
+    "location_label",
+    "location_from",
+    "location_to",
+    "location_span_count",
     "area_from_folder",
     "area_from_document",
     "area_final",
@@ -99,6 +104,11 @@ class DeliveryRecord(BaseModel):
     price_per_unit: float | None = None
     amount_eur: float | None = None
     unload_location_text: str = ""
+    location_type: str = "none"
+    location_label: str = ""
+    location_from: int | None = None
+    location_to: int | None = None
+    location_span_count: int = 0
     area_from_folder: str = ""
     area_from_document: str = ""
     area_final: str = ""
@@ -113,6 +123,10 @@ class DeliveryRecord(BaseModel):
     dedup_key: str = ""
     needs_review: bool = False
     review_reason: str = ""
+
+    def material_key(self) -> str:
+        """Schluessel aus Klasse und Koernung, z.B. 'mineral_mixture 0/8'."""
+        return f"{self.material_class} {self.grain_size}".strip()
 
     @field_validator("quantity", "quantity_t", "quantity_m3_doc")
     @classmethod

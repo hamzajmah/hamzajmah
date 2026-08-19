@@ -20,6 +20,7 @@ from ..areas import resolve
 from ..conversion import convert
 from ..decisions import Decision
 from ..harness import Context, SchemaChangeRequired, TaskResult
+from ..locations import parse as parse_location
 from ..materials import CHARGE_SUPPLY, classify, factor_key
 from ..state import Task
 from ..validators import DeliveryRecord, make_record_id, plausibility_problems
@@ -37,7 +38,6 @@ REQUIRED_COLUMNS = [
 ]
 
 LS_PATTERN = re.compile(r"\bLS\s*[:.]?\s*([0-9]{3,})", re.IGNORECASE)
-LOCATION_PATTERN = re.compile(r"\b((?:SP|Q|QR)\s?-?\s?\d{1,4}(?:\s*[-–]\s*(?:SP|Q|QR)?\s?\d{1,4})?)", re.IGNORECASE)
 
 
 def _as_date(value: Any) -> date | None:
@@ -123,10 +123,9 @@ def run(task: Task, ctx: Context) -> TaskResult:
         area_id = _as_str(row.get("Sub Project ID"))
         area = resolve(area_id, "", area_patterns)
 
+        # Der Originaltext bleibt erhalten, die Struktur kommt daneben.
         location = notes
-        loc_match = LOCATION_PATTERN.search(notes)
-        if loc_match:
-            location = loc_match.group(1).strip()
+        place = parse_location(notes)
 
         rec = DeliveryRecord(
             record_id=make_record_id(
@@ -158,6 +157,11 @@ def run(task: Task, ctx: Context) -> TaskResult:
             conversion_source=conv.source,
             conversion_confidence=conv.confidence,
             unload_location_text=location,
+            location_type=place.location_type,
+            location_label=place.location_label,
+            location_from=place.location_from,
+            location_to=place.location_to,
+            location_span_count=place.span_count,
             area_from_folder=area.area_from_folder,
             area_from_document=area.area_from_document,
             area_final=area.area_final,

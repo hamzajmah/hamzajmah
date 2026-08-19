@@ -5,6 +5,8 @@ import csv
 from datetime import date, timedelta
 from pathlib import Path
 
+from ..areas import classify_area
+from ..config import load_lv_mapping
 from ..excel_out import verify_workbook, write_workbook
 from ..harness import Context, TaskResult
 from ..state import Task
@@ -17,6 +19,7 @@ FACT_DELIVERY = [
     "delivered_m3_loose", "delivered_m3_installed", "delivered_m3_installed_low", "delivered_m3_installed_high",
     "conversion_confidence", "price_per_unit", "amount_eur",
     "extraction_method", "extraction_confidence", "is_duplicate", "needs_review", "review_reason",
+    "location_label", "location_type", "location_from", "location_span_count",
 ]
 FACT_LV_BILLING = ["lv_position_no", "billing_date", "period_month", "area_key", "material_group", "unit", "billed_quantity", "billed_value_eur", "lv_source"]
 DIM_AREA = ["area_key", "area_name", "area_class", "area_group", "is_assigned"]
@@ -25,6 +28,11 @@ DIM_MATERIAL = ["material_key", "material_class", "grain_size", "rock_type", "is
 DIM_SUPPLIER = ["supplier_key", "supplier_name", "records"]
 DIM_LV_POSITION = ["lv_position_no", "short_text", "group_path", "area_key", "material_group", "unit", "contract_quantity", "billed_quantity_total", "unit_price_eur", "lv_source", "is_gravel_relevant"]
 DIM_MATERIAL_GROUP = ["material_group", "label", "consumes_delivered_material", "fed_by_materials", "note"]
+FACT_LOCATION_ALLOCATION = [
+    "record_id", "location_point", "sp_number", "area_key", "material_group",
+    "delivery_date", "allocated_t", "allocated_m3_installed", "allocation_method",
+]
+DIM_LOCATION = ["location_point", "sp_number", "location_kind", "sort_order"]
 
 MONTHS_DE = ["Januar", "Februar", "Maerz", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
@@ -37,20 +45,10 @@ def _supplier_key(name: str) -> str:
     return (name or "unbekannt").strip()[:80]
 
 
-def _load_mapping(ctx: Context) -> dict:
-    import yaml
-
-    rel = ctx.cfg["paths"].get("lv_mapping", "")
-    path = (ctx.cfg.root / rel) if rel else None
-    if path is None or not path.is_file():
-        return {}
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-
 def run(task: Task, ctx: Context) -> TaskResult:
     records = [r for r in ctx.store.records() if not r.is_duplicate]
     factors = (ctx.factors.get("factors") or {})
-    mapping = _load_mapping(ctx)
+    mapping = load_lv_mapping(ctx.cfg)
     material_to_group = mapping.get("material_to_group") or {}
 
     fact_rows = []
@@ -82,6 +80,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
             rec.delivered_m3_loose, rec.delivered_m3_installed, rec.delivered_m3_installed_low, rec.delivered_m3_installed_high,
             rec.conversion_confidence, rec.price_per_unit, rec.amount_eur,
             rec.extraction_method, rec.extraction_confidence, rec.is_duplicate, rec.needs_review, rec.review_reason,
+            rec.location_label or "ohne Ortsangabe", rec.location_type, rec.location_from, rec.location_span_count,
         ])
 
     lv_facts, lv_positions, lv_months = _read_lv_files(ctx.work_dir)
@@ -108,14 +107,17 @@ def run(task: Task, ctx: Context) -> TaskResult:
         ])
         day += timedelta(days=1)
 
-    # Bereiche, die nur auf der LV Seite vorkommen, muessen in dim_area stehen.
-    for row in lv_facts:
-        area_key = str(row[3])
+    # Bereiche, die nur auf der LV Seite vorkommen, gehoeren ebenfalls in
+    # dim_area. Sonst fehlen Abschnitte und Muffengruben, in die noch nichts
+    # geliefert wurde - und genau die will das Controlling sehen.
+    area_patterns = ctx.cfg["areas"]["classes"]
+    for area_key in [str(row[3]) for row in lv_facts] + [str(row[3]) for row in lv_positions]:
         if area_key and area_key not in areas:
-            areas[area_key] = ["section" if area_key.startswith("AS") else ("crossing" if area_key.startswith("QR") else "unknown")]
+            areas[area_key] = [classify_area(area_key, area_patterns)]
     area_rows = _area_rows(areas)
 
     group_rows = _material_group_rows(mapping, fact_rows, lv_facts)
+    allocation_rows, location_rows = _read_location_files(ctx.work_dir)
 
     tables = {
         "fact_delivery": (FACT_DELIVERY, fact_rows),
@@ -126,6 +128,8 @@ def run(task: Task, ctx: Context) -> TaskResult:
         "dim_material_group": (DIM_MATERIAL_GROUP, group_rows),
         "dim_supplier": (DIM_SUPPLIER, [[k, k, suppliers[k]] for k in sorted(suppliers)]),
         "dim_lv_position": (DIM_LV_POSITION, lv_positions),
+        "fact_location_allocation": (FACT_LOCATION_ALLOCATION, allocation_rows),
+        "dim_location": (DIM_LOCATION, location_rows),
     }
 
     workbook = ctx.cfg.root / ctx.cfg["powerbi"]["workbook"]
@@ -134,6 +138,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
     problems = verify_workbook(workbook, {name: cols for name, (cols, _) in tables.items()})
     problems += _referential_problems(fact_rows, area_rows, date_rows, materials, suppliers, start, end)
     problems += _lv_referential_problems(lv_facts, lv_positions, area_rows, date_rows, group_rows)
+    problems += _location_referential_problems(allocation_rows, location_rows, area_rows, date_rows)
     if problems:
         return TaskResult(ok=False, message="Modellpruefung: " + ";".join(sorted(set(problems))[:6]), error_class="model_invalid")
 
@@ -238,6 +243,49 @@ def _referential_problems(fact_rows, area_rows, date_rows, materials, suppliers,
     return problems
 
 
+def _read_location_files(work_dir: Path) -> tuple[list[list], list[list]]:
+    """Ortsverteilung aus T3b. Punktdimension entsteht aus den Zuordnungen."""
+    allocations: list[list] = []
+    points: dict[str, list] = {}
+    path = work_dir / "09_location_allocation.csv"
+    if not path.exists():
+        return [], []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh, delimiter=";"):
+            day = row.get("delivery_date", "")
+            point = row.get("location_point", "")
+            number = _num(row.get("sp_number"))
+            allocations.append([
+                row.get("record_id", ""), point, int(number) if number is not None else None,
+                row.get("area_final", ""), row.get("material_group", ""),
+                date.fromisoformat(day) if day else None,
+                _num(row.get("allocated_t")), _num(row.get("allocated_m3_installed")),
+                row.get("allocation_method", ""),
+            ])
+            if point not in points:
+                kind = "Querungsbauwerk" if point.startswith("QR") else "Setzpunkt"
+                points[point] = [point, int(number) if number is not None else None, kind, len(points)]
+    ordered = sorted(points.values(), key=lambda r: (r[2], r[1] if r[1] is not None else 0, r[0]))
+    for index, entry in enumerate(ordered):
+        entry[3] = index
+    return allocations, ordered
+
+
+def _location_referential_problems(allocations, locations, area_rows, date_rows) -> list[str]:
+    problems = []
+    point_keys = {r[0] for r in locations}
+    area_keys = {r[0] for r in area_rows}
+    date_keys = {r[0] for r in date_rows}
+    for row in allocations:
+        if row[1] not in point_keys:
+            problems.append(f"fk_ort_fehlt:{row[1]}")
+        if row[3] and row[3] not in area_keys:
+            problems.append(f"fk_ort_area_fehlt:{row[3]}")
+        if row[5] is not None and row[5] not in date_keys:
+            problems.append(f"fk_ort_datum_fehlt:{row[5]}")
+    return problems
+
+
 def _lv_referential_problems(lv_facts, lv_positions, area_rows, date_rows, group_rows) -> list[str]:
     problems = []
     area_keys = {r[0] for r in area_rows}
@@ -312,6 +360,21 @@ DIVIDE ( [Liefermenge t], CALCULATE ( [Liefermenge t], ALL ( dim_area ) ) )
 Vertragsmenge m3 = SUM ( dim_lv_position[contract_quantity] )
 
 Restmenge LV m3 = [Vertragsmenge m3] - [Abgerechnete Menge m3]
+
+// Ortsauswertung. allocation_method trennt belegte von verteilter Menge.
+Liefermenge t je Ort belegt =
+CALCULATE ( SUM ( fact_location_allocation[allocated_t] ), fact_location_allocation[allocation_method] = "exact" )
+
+Liefermenge t je Ort aus Spannen verteilt =
+CALCULATE ( SUM ( fact_location_allocation[allocated_t] ), fact_location_allocation[allocation_method] = "even_split" )
+
+Liefermenge t je Ort gesamt = SUM ( fact_location_allocation[allocated_t] )
+
+Anteil Menge ohne Ortsangabe % =
+DIVIDE (
+    CALCULATE ( [Liefermenge t], fact_delivery[location_type] = "none" ),
+    [Liefermenge t]
+)
 
 Offene Prueffaelle =
 CALCULATE ( COUNTROWS ( fact_delivery ), fact_delivery[needs_review] = 1 )

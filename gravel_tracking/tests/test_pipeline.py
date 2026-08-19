@@ -73,7 +73,7 @@ def test_zuschlaege_zaehlen_nicht_als_liefermenge(project: Path):
     # Zuschlagszeilen tragen Tonnen als Abrechnungsbasis, aber nie quantity_t.
     assert all(r["quantity_t"] == "" for r in surcharge)
     assert all(r["delivered_m3_installed"] == "" for r in surcharge)
-    assert sum(float(r["quantity_t"]) for r in supply) == 73.75  # 24,65 + 25,10 + 24,00
+    assert sum(float(r["quantity_t"]) for r in supply) == 115.75  # 24,65 + 25,10 + 24,00 + 20,00 + 22,00
 
 
 def test_annahme_wird_von_der_lieferung_getrennt(project: Path):

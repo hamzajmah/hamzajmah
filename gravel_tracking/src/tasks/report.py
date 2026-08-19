@@ -135,19 +135,20 @@ def run(task: Task, ctx: Context) -> TaskResult:
     add(f"- Annahme Erdaushub und Bohrklein (Gegenrichtung, keine Lieferung): **{_fmt(disposal_t, 2)} t**")
     add(f"- Tonnen auf Zuschlags- und Frachtzeilen (reine Abrechnungsbasis, nicht in der Liefermenge): **{_fmt(surcharge_t, 2)} t**")
     add("")
+    add(_location_section(ctx))
     add(_lv_section(ctx))
-    add("## 8. Doppelbuchungen")
+    add("## 9. Doppelbuchungen")
     add("")
     add(f"- Als Dublette erkannt und genau einmal gezaehlt: **{quality.get('duplicates_removed', 0)} Zeilen** "
         "(gleiche Lieferscheinnummer, gleiches Datum, gleiche Positionsart, gleiche Menge). Liste in `work/03_duplicates.csv`.")
     add("- Fuer die Mengenauswertung ist der Fall bereinigt. Fuer die Rechnungspruefung ist er offen, weil die Buchung im ERP zweimal steht.")
     add("")
-    add("## 9. Datenqualitaet")
+    add("## 10. Datenqualitaet")
     add("")
     for key, value in sorted(quality.items()):
         add(f"- {key}: {value}")
     add("")
-    add("## 10. Offene Punkte aus DECISIONS.md")
+    add("## 11. Offene Punkte aus DECISIONS.md")
     add("")
     decisions = ctx.decisions.items()
     if decisions:
@@ -156,7 +157,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
     else:
         add("- keine")
     add("")
-    add("## 11. Was dieser Bericht ausdruecklich nicht sagt")
+    add("## 12. Was dieser Bericht ausdruecklich nicht sagt")
     add("")
     add("- Er sagt nichts ueber Verluste oder Mehrverbrauch. Solange die Pruefliste nicht abgearbeitet ist, waere jede solche Aussage eine Vermutung.")
     add("- Er enthaelt keinen LV Abgleich, solange kein Aufmass hinterlegt ist.")
@@ -172,13 +173,97 @@ def run(task: Task, ctx: Context) -> TaskResult:
     return TaskResult(ok=True, message="Bericht geschrieben", data={"areas": len(by_area), "supply_t": round(total_t, 2)})
 
 
+def _location_section(ctx: Context) -> str:
+    """Wo wurde wie viel abgeladen. Belegte Menge und Verteilung getrennt."""
+    import csv as _csv
+
+    by_location = ctx.work_dir / "07_delivery_by_location.csv"
+    by_point = ctx.work_dir / "08_location_points.csv"
+    if not by_location.exists():
+        return "## 7. Wo wurde geliefert\n\n- keine Ortsauswertung vorhanden\n"
+
+    with by_location.open("r", encoding="utf-8", newline="") as fh:
+        rows = list(_csv.DictReader(fh, delimiter=";"))
+    with by_point.open("r", encoding="utf-8", newline="") as fh:
+        points = list(_csv.DictReader(fh, delimiter=";"))
+
+    by_type: dict[str, float] = defaultdict(float)
+    by_label: dict[tuple[str, str], float] = defaultdict(float)
+    fuhren: dict[tuple[str, str], int] = defaultdict(int)
+    for row in rows:
+        quantity = float(row["delivered_t"] or 0)
+        by_type[row["location_type"]] += quantity
+        by_label[(row["location_label"], row["location_type"])] += quantity
+        fuhren[(row["location_label"], row["location_type"])] += int(row["deliveries"] or 0)
+    total = sum(by_type.values())
+
+    labels = {
+        "point": "einzelner Setzpunkt, punktscharf belegt",
+        "span": "Spanne ueber mehrere Setzpunkte",
+        "crossing": "Querungsbauwerk",
+        "none": "keine verwertbare Ortsangabe",
+    }
+    lines = [
+        "## 7. Wo wurde geliefert",
+        "",
+        "Grundlage ist das Notizfeld des Wareneingangs. Es kennt drei Formen: einen einzelnen Setzpunkt "
+        "(`SP37`), eine Spanne (`SP122 - SP131`) und ein Querungsbauwerk (`Q249`).",
+        "",
+        "| Form der Ortsangabe | Menge t | Anteil |",
+        "|---|---:|---:|",
+    ]
+    for key in ("point", "span", "crossing", "none"):
+        quantity = by_type.get(key, 0.0)
+        if not quantity:
+            continue
+        lines.append(f"| {labels[key]} | {_fmt(quantity)} | {_fmt(100.0 * quantity / total, 1)} Prozent |")
+    located = total - by_type.get("none", 0.0)
+    lines += [
+        f"| **mit Ortsangabe insgesamt** | **{_fmt(located)}** | **{_fmt(100.0 * located / total, 1)} Prozent** |",
+        "",
+        "### Die groessten Abladestellen, so wie sie notiert wurden",
+        "",
+        "| Ortsangabe | Form | Fuhren | Menge t |",
+        "|---|---|---:|---:|",
+    ]
+    for (label, ltype), quantity in sorted(by_label.items(), key=lambda kv: -kv[1])[:15]:
+        lines.append(f"| {label} | {labels.get(ltype, ltype)} | {fuhren[(label, ltype)]} | {_fmt(quantity)} |")
+
+    exact_total = sum(float(p["t_exact"] or 0) for p in points)
+    split_total = sum(float(p["t_from_spans_even_split"] or 0) for p in points)
+    per_point: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+    for row in points:
+        per_point[row["location_point"]][0] += float(row["t_exact"] or 0)
+        per_point[row["location_point"]][1] += float(row["t_from_spans_even_split"] or 0)
+
+    lines += [
+        "",
+        "### Auf den einzelnen Setzpunkt heruntergebrochen",
+        "",
+        f"Punktscharf belegt sind **{_fmt(exact_total)} t**. Weitere **{_fmt(split_total)} t** stammen aus Spannen und "
+        "sind hier nur ueber eine Gleichverteilung auf die Punkte der Spanne verteilt. Beide Werte stehen in "
+        "`work/08_location_points.csv` in getrennten Spalten und werden nie addiert dargestellt, ohne das zu sagen.",
+        "",
+        "| Setzpunkt | belegt t | aus Spannen verteilt t | Summe beider Sichten t |",
+        "|---|---:|---:|---:|",
+    ]
+    for point, (exact, split) in sorted(per_point.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:15]:
+        lines.append(f"| {point} | {_fmt(exact)} | {_fmt(split)} | {_fmt(exact + split)} |")
+    lines += [
+        "",
+        "Die Spalte ganz rechts ist eine Sicht, kein Nachweis. Belegt ist ausschliesslich die Spalte davor.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _lv_section(ctx: Context) -> str:
     """Abgleich Lieferung gegen Leistungsmeldung, nur im gemeinsamen Zeitraum."""
     import csv as _csv
 
     path = ctx.work_dir / "06_comparison.csv"
     if not path.exists():
-        return "## 7. Abgleich gegen die Leistungsmeldung\n\n- keine Vergleichsdaten\n"
+        return "## 8. Abgleich gegen die Leistungsmeldung\n\n- keine Vergleichsdaten\n"
 
     with path.open("r", encoding="utf-8", newline="") as fh:
         rows = list(_csv.DictReader(fh, delimiter=";"))
@@ -192,7 +277,7 @@ def _lv_section(ctx: Context) -> str:
     groups = sorted({r["material_group"] for r in inside})
 
     lines = [
-        "## 7. Abgleich gegen die Leistungsmeldung",
+        "## 8. Abgleich gegen die Leistungsmeldung",
         "",
         f"Verglichen wird ausschliesslich der gemeinsame Zeitraum {period_from} bis {period_to} und ausschliesslich "
         "gegen das verdichtete Einbauvolumen.",

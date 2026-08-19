@@ -37,6 +37,7 @@ class LvPosition:
     area_key: str
     material_group: str = ""
     is_gravel_relevant: bool = False
+    quantity_comparable: bool = True
     timeline_matches_total: bool = True
     monthly: dict[str, float] = field(default_factory=dict)
 
@@ -178,4 +179,7 @@ def apply_mapping(positions: list[LvPosition], mapping: dict[str, Any]) -> None:
                     continue
                 position.material_group = group_name
                 position.is_gravel_relevant = bool(rule.get("consumes_delivered_material", False))
+                # Pauschalpositionen verbrauchen Material, lassen sich aber nicht
+                # gegen eine Menge stellen.
+                position.quantity_comparable = bool(rule.get("quantity_comparable", True))
                 break

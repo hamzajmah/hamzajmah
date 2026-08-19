@@ -10,11 +10,13 @@ from src.excel_out import verify_workbook
 from src.tasks.model_build import (
     DIM_AREA,
     DIM_DATE,
+    DIM_LOCATION,
     DIM_LV_POSITION,
     DIM_MATERIAL,
     DIM_MATERIAL_GROUP,
     DIM_SUPPLIER,
     FACT_DELIVERY,
+    FACT_LOCATION_ALLOCATION,
     FACT_LV_BILLING,
 )
 from tests.conftest import run_cli
@@ -28,6 +30,8 @@ EXPECTED = {
     "dim_material_group": DIM_MATERIAL_GROUP,
     "dim_supplier": DIM_SUPPLIER,
     "dim_lv_position": DIM_LV_POSITION,
+    "fact_location_allocation": FACT_LOCATION_ALLOCATION,
+    "dim_location": DIM_LOCATION,
 }
 
 

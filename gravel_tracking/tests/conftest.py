@@ -24,6 +24,8 @@ ERP_ROWS = [
     ("Bau Tandemzug + Maut : Annahme Erdaushub gem. BM-0 mit BGA", 27.42, "ton", "2026-07-24", "SP78 LS 2643503457", "AS04S-3-01", "Slurry And Soil", 246, "D-2604010420", 8),
     ("SP - Samstagszuschlag", 25.00, "ton", "2026-07-25", "SP47 LS 10171", "GENERAL", "Backfill", 671, "D-2604010448", 10),
     ("SP - Frachtkostenausgleich Schüttgut", 12.50, "€", "2026-07-25", "", "GENERAL", "Backfill", 672, "D-2604010448", 12),
+    ("Bau Tandemzug + Maut : 0/45 mm Mineralgemisch FSS", 20.00, "ton", "2026-07-26", "SP 48 - SP 51", "GENERAL", "Trenching", 673, "D-2604010449", 14),
+    ("Sattel/Tandemzug + Maut : Mineralgemisch 50/200 (Porphyr)", 22.00, "ton", "2026-07-26", "", "GENERAL", "Trenching", 674, "D-2604010450", 16),
 ]
 
 ERP_COLUMNS = [
