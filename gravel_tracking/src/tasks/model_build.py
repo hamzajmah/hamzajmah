@@ -22,7 +22,14 @@ FACT_DELIVERY = [
     "location_label", "location_type", "location_from", "location_span_count",
 ]
 FACT_LV_BILLING = ["lv_position_no", "billing_date", "period_month", "area_key", "material_group", "unit", "billed_quantity", "billed_value_eur", "lv_source"]
-DIM_AREA = ["area_key", "area_name", "area_class", "area_group", "is_assigned"]
+DIM_AREA = [
+    "area_key", "area_name", "area_class", "area_group", "is_assigned",
+    "section_key", "km_from", "km_to", "km_mid", "construction_method", "structure_name",
+]
+DIM_STRUCTURE = [
+    "structure_name", "sequence", "section_key", "area_key", "km_from", "km_to", "km_mid",
+    "length_m", "construction_method", "is_crossing", "crossing_no", "access_roads",
+]
 DIM_DATE = ["date", "year", "month", "year_month", "month_name_de", "quarter", "iso_week", "is_weekend"]
 DIM_MATERIAL = ["material_key", "material_class", "grain_size", "rock_type", "is_gravel_supply", "bulk_density_t_per_m3", "installed_density_t_per_m3", "compaction_factor", "conversion_confidence", "conversion_source"]
 DIM_SUPPLIER = ["supplier_key", "supplier_name", "records"]
@@ -84,6 +91,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
         ])
 
     lv_facts, lv_positions, lv_months = _read_lv_files(ctx.work_dir)
+    structure_rows = _read_structures(ctx.work_dir)
 
     # dim_date muss jeden Schluessel beider Faktentabellen abdecken.
     start, end = ctx.cfg.period
@@ -114,7 +122,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
     for area_key in [str(row[3]) for row in lv_facts] + [str(row[3]) for row in lv_positions]:
         if area_key and area_key not in areas:
             areas[area_key] = [classify_area(area_key, area_patterns)]
-    area_rows = _area_rows(areas)
+    area_rows = _area_rows(areas, structure_rows)
 
     group_rows = _material_group_rows(mapping, fact_rows, lv_facts)
     allocation_rows, location_rows = _read_location_files(ctx.work_dir)
@@ -130,6 +138,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
         "dim_lv_position": (DIM_LV_POSITION, lv_positions),
         "fact_location_allocation": (FACT_LOCATION_ALLOCATION, allocation_rows),
         "dim_location": (DIM_LOCATION, location_rows),
+        "dim_structure": (DIM_STRUCTURE, structure_rows),
     }
 
     workbook = ctx.cfg.root / ctx.cfg["powerbi"]["workbook"]
@@ -149,12 +158,44 @@ def run(task: Task, ctx: Context) -> TaskResult:
     return TaskResult(ok=True, message=f"{len(fact_rows)} Faktenzeilen", data={"facts": len(fact_rows), "areas": len(area_rows)})
 
 
-def _area_rows(areas: dict[str, list[str]]) -> list[list]:
+def _area_rows(areas: dict[str, list[str]], structures: list[list]) -> list[list]:
+    """Bereichsdimension mit Ortsbezug aus den Trassenstammdaten."""
+    labels = {
+        "section": "Trassenabschnitte", "crossing": "Querungen",
+        "general": "Nicht bereichsscharf", "joint_pit": "Muffen- und Schubgruben",
+    }
+    # Kilometrierung je Sektion aus allen Bauwerksflaechen der Sektion.
+    section_extent: dict[str, list[float]] = {}
+    by_area: dict[str, list] = {}
+    for row in structures:
+        section_key, area_key = str(row[2]), str(row[3])
+        km_from, km_to = row[4], row[5]
+        if km_from is not None and km_to is not None:
+            low, high = section_extent.get(section_key, [km_from, km_to])
+            section_extent[section_key] = [min(low, km_from), max(high, km_to)]
+        if area_key.startswith("QR") and area_key not in by_area:
+            by_area[area_key] = row
+
     rows = []
-    labels = {"section": "Trassenabschnitte", "crossing": "Querungen", "general": "Nicht bereichsscharf"}
     for key in sorted(areas):
         area_class = areas[key][0]
-        rows.append([key, key, area_class, labels.get(area_class, "Sonstige"), 0 if area_class == "general" else 1])
+        section_key, km_from, km_to, method, structure = "", None, None, "", ""
+        if area_class == "crossing" and key in by_area:
+            structure_row = by_area[key]
+            section_key, km_from, km_to = str(structure_row[2]), structure_row[4], structure_row[5]
+            method, structure = str(structure_row[8]), str(structure_row[0])
+        elif area_class == "section":
+            section_key = key
+            extent = section_extent.get(key)
+            if extent:
+                km_from, km_to = extent[0], extent[1]
+            method = "gemischt"
+        km_mid = round((km_from + km_to) / 2.0, 1) if km_from is not None and km_to is not None else None
+        rows.append([
+            key, key, area_class, labels.get(area_class, "Sonstige"),
+            0 if area_class == "general" else 1,
+            section_key, km_from, km_to, km_mid, method, structure,
+        ])
     return rows
 
 
@@ -269,6 +310,25 @@ def _read_location_files(work_dir: Path) -> tuple[list[list], list[list]]:
     for index, entry in enumerate(ordered):
         entry[3] = index
     return allocations, ordered
+
+
+def _read_structures(work_dir: Path) -> list[list]:
+    path = work_dir / "01_structures.csv"
+    if not path.exists():
+        return []
+    rows = []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh, delimiter=";"):
+            sequence = _num(row.get("sequence"))
+            rows.append([
+                row.get("structure_name", ""), int(sequence) if sequence is not None else None,
+                row.get("section_key", ""), row.get("area_key", ""),
+                _num(row.get("km_from")), _num(row.get("km_to")), _num(row.get("km_mid")),
+                _num(row.get("length_m")), row.get("method", ""),
+                1 if row.get("is_crossing") == "true" else 0,
+                row.get("crossing_no", ""), row.get("access_roads", ""),
+            ])
+    return rows
 
 
 def _location_referential_problems(allocations, locations, area_rows, date_rows) -> list[str]:

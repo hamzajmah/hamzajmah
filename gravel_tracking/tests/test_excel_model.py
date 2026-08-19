@@ -14,6 +14,7 @@ from src.tasks.model_build import (
     DIM_LV_POSITION,
     DIM_MATERIAL,
     DIM_MATERIAL_GROUP,
+    DIM_STRUCTURE,
     DIM_SUPPLIER,
     FACT_DELIVERY,
     FACT_LOCATION_ALLOCATION,
@@ -32,6 +33,7 @@ EXPECTED = {
     "dim_lv_position": DIM_LV_POSITION,
     "fact_location_allocation": FACT_LOCATION_ALLOCATION,
     "dim_location": DIM_LOCATION,
+    "dim_structure": DIM_STRUCTURE,
 }
 
 

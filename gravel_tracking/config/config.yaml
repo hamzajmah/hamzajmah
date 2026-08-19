@@ -22,8 +22,19 @@ paths:
   erp_exports: "data/erp"                 # IFS Wareneingangsexporte (.xlsx)
   lv_file: "data/lv/02_Leistungsmeldung_2026_CM_DE_v02_3.xlsx"
   lv_mapping: "config/lv_mapping.yaml"
+  structure_master: "data/master/bauwerke_kilometrierung.xlsx"
+  supplier_log: "data/master/lieferlog_mineralgemisch.xlsx"
   work_dir: "work"
   output_dir: "outputs"
+
+# Trassenstammdaten: Bauwerksflaechen mit Sektion, Kilometrierung und Bauweise.
+structure_master:
+  sheet: "Termine Beweissich."
+  header_row: 4
+
+# Lieferlog des Lieferanten, dient ausschliesslich der Gegenprobe.
+supplier_log:
+  sheet: "Baustoffgemisch"
 
 # Leistungsmeldung: Kopfzeilen stehen ueber der Tabelle, deshalb die Zeilennummer
 # der Spaltenueberschriften je Blatt.

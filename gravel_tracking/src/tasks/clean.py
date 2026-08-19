@@ -139,6 +139,32 @@ def run(task: Task, ctx: Context) -> TaskResult:
             evidence="work/02_records.csv, Spalte area_final",
         ))
 
+    # Sammelbuchungen erkennen: haeufen sich Fuhren auf dem Monatsersten, ist das
+    # Feld ein Buchungsdatum und kein Lieferdatum.
+    supply_all = [r for r in records if r.charge_type == CHARGE_SUPPLY and not r.is_duplicate and r.delivery_date]
+    first_of_month = [r for r in supply_all if r.delivery_date and r.delivery_date.day == 1]
+    if supply_all and len(first_of_month) / len(supply_all) > 0.1:
+        share_t = sum(r.quantity_t or 0.0 for r in first_of_month)
+        total_supply_t = sum(r.quantity_t or 0.0 for r in supply_all)
+        ctx.decisions.add(Decision(
+            category=6,
+            topic="Das Lieferdatum im ERP ist teilweise ein Sammelbuchungsdatum",
+            detail=(
+                f"{len(first_of_month)} von {len(supply_all)} Fuhren ({100 * len(first_of_month) / len(supply_all):.1f} Prozent, "
+                f"{share_t:,.0f} t) tragen als Lieferdatum den Ersten eines Monats, darunter Sonntage. "
+                "Das sind Sammelbuchungen, keine Liefertage."
+            ).replace(",", "."),
+            impact=(
+                "Mengen je Monat sind belastbar, der Verlauf innerhalb eines Monats und jeder Tagesvergleich sind es nicht. "
+                f"Betroffen sind {100 * share_t / total_supply_t:.1f} Prozent der Liefermenge."
+            ),
+            proposal=(
+                "Echtes Lieferdatum aus dem Lieferschein uebernehmen. Das Lieferlog des Lieferanten enthaelt es und "
+                "laesst sich ueber Lieferscheinnummer bzw. Datum und Menge zuordnen."
+            ),
+            evidence="work/02_records.csv, Spalte delivery_date",
+        ))
+
     supply = [r for r in records if r.charge_type == CHARGE_SUPPLY and not r.is_duplicate]
     total_t = sum(r.quantity_t or 0.0 for r in supply)
     review_t = sum(r.quantity_t or 0.0 for r in supply if r.needs_review)
