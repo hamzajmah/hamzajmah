@@ -211,6 +211,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
             )
         )
 
+    _check_receipt_sequence(task, ctx, frame)
     _add_source_decisions(task, ctx, records, stats)
 
     ctx.store.drop_source(task.source_file)
@@ -220,6 +221,56 @@ def run(task: Task, ctx: Context) -> TaskResult:
         f"annahme={stats['disposal']} zuschlag={stats['surcharge']} pruefliste={stats['review']}"
     )
     return TaskResult(ok=True, message=f"{len(records)} Saetze aus ERP", data=stats)
+
+
+def _check_receipt_sequence(task: Task, ctx: Context, frame: Any) -> None:
+    """Ist der Nummernkreis der Wareneingaenge je Bestellposition geschlossen?
+
+    Fehlende Nummern bedeuten nicht zwingend fehlende Lieferungen: stornierte
+    Wareneingaenge fehlen im Export, weil er auf Status 'Received' gefiltert ist.
+    Der Befund gehoert trotzdem sichtbar in die Entscheidungswarteschlange.
+    """
+    grouped = frame.groupby("Source Ref 2")["Receipt No"]
+    missing_total = 0
+    lines_with_gaps = 0
+    late_start = []
+    for line, series in grouped:
+        numbers = {int(n) for n in series.dropna()}
+        if not numbers:
+            continue
+        low, high = min(numbers), max(numbers)
+        gaps = (high - low + 1) - len(numbers)
+        if gaps:
+            lines_with_gaps += 1
+            missing_total += gaps
+        if low > 1:
+            late_start.append((line, low))
+
+    if not missing_total and not late_start:
+        return
+
+    total_rows = len(frame)
+    ctx.decisions.add(
+        Decision(
+            category=6,
+            topic="Luecken im Nummernkreis der Wareneingaenge",
+            detail=(
+                f"In {lines_with_gaps} Bestellpositionen fehlen zusammen {missing_total} Wareneingangsnummern "
+                f"({100 * missing_total / max(total_rows, 1):.1f} Prozent der Zeilen). "
+                f"{len(late_start)} Positionen beginnen nicht bei Nummer 1, "
+                f"z.B. {', '.join(f'Position {int(line)} ab Nummer {low}' for line, low in late_start[:4])}."
+            ),
+            impact=(
+                "Entweder handelt es sich um stornierte Wareneingaenge, die der Statusfilter ausblendet, oder um "
+                "Lieferungen vor dem Beginn des Exportzeitraums. Im zweiten Fall fehlt Menge."
+            ),
+            proposal=(
+                "In IFS je Beispielposition pruefen, was hinter den fehlenden Nummern steht, und den Export bei Bedarf "
+                "ohne Datumsfilter erneut ziehen."
+            ),
+            evidence=task.source_file,
+        )
+    )
 
 
 def _add_source_decisions(task: Task, ctx: Context, records: list[DeliveryRecord], stats: dict[str, int]) -> None:

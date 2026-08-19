@@ -154,9 +154,16 @@ def run(task: Task, ctx: Context) -> TaskResult:
         ctx.decisions.add(Decision(
             category=6,
             topic="Das Lieferlog nennt mehrere Lieferwerke",
-            detail=f"Im Lieferlog stehen {len(plants)} Werke: {', '.join(plants[:8])}{' ...' if len(plants) > 8 else ''}.",
-            impact="Der ausgewertete ERP Bestand deckt nur eine Bestellung ab. Weitere Werke bedeuten weitere Bestellungen.",
-            proposal="Klaeren, welche Werke zu welcher Bestellung gehoeren, und die fehlenden Wareneingaenge nachliefern.",
+            detail=(
+                f"Im Lieferlog stehen {len(plants)} Werksbezeichnungen (teils Schreibvarianten desselben Werks): "
+                f"{', '.join(plants[:8])}{' ...' if len(plants) > 8 else ''}. Im Ueberlappungszeitraum decken sich die "
+                "Mengen beider Quellen weitgehend, dort gehoeren die Werke also zur ausgewerteten Bestellung."
+            ),
+            impact=(
+                "Ob die Werke ausserhalb des Ueberlappungszeitraums ebenfalls zu dieser Bestellung gehoeren oder zu "
+                "weiteren Bestellungen, ist aus dem Log nicht ableitbar: es fuehrt kein Lieferantenfeld."
+            ),
+            proposal="In IFS pruefen, welche Bestellungen mit Schotterbezug es neben P100042563 gibt.",
             evidence="work/10_reconciliation_by_month.csv",
         ))
 
