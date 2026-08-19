@@ -40,6 +40,10 @@ FACT_LOCATION_ALLOCATION = [
     "delivery_date", "allocated_t", "allocated_m3_installed", "allocation_method",
 ]
 DIM_LOCATION = ["location_point", "sp_number", "location_kind", "sort_order"]
+FACT_DELIVERY_LOG = [
+    "period_month", "period_date", "location_point", "material_key", "material_group",
+    "charge_type", "plant", "deliveries", "delivered_t", "source",
+]
 
 MONTHS_DE = ["Januar", "Februar", "Maerz", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
@@ -92,6 +96,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
 
     lv_facts, lv_positions, lv_months = _read_lv_files(ctx.work_dir)
     structure_rows = _read_structures(ctx.work_dir)
+    log_rows, log_points, log_months = _read_log_locations(ctx.work_dir)
 
     # dim_date muss jeden Schluessel beider Faktentabellen abdecken.
     start, end = ctx.cfg.period
@@ -99,10 +104,10 @@ def run(task: Task, ctx: Context) -> TaskResult:
     if delivery_dates:
         start = min(start, min(delivery_dates))
         end = max(end, max(delivery_dates))
-    if lv_months:
-        start = min(start, date.fromisoformat(min(lv_months) + "-01"))
-        last = date.fromisoformat(max(lv_months) + "-01")
-        end = max(end, last)
+    for months in (lv_months, log_months):
+        if months:
+            start = min(start, date.fromisoformat(min(months) + "-01"))
+            end = max(end, date.fromisoformat(max(months) + "-01"))
     start = start.replace(day=1)
     end = _end_of_month(end)
 
@@ -126,6 +131,15 @@ def run(task: Task, ctx: Context) -> TaskResult:
 
     group_rows = _material_group_rows(mapping, fact_rows, lv_facts)
     allocation_rows, location_rows = _read_location_files(ctx.work_dir)
+    # Orte, die nur das Lieferlog kennt, gehoeren ebenfalls in die Dimension.
+    known_points = {row[0] for row in location_rows}
+    for point in sorted(log_points - known_points):
+        kind = "Querungsbauwerk" if point.startswith("QR") else ("Setzpunkt" if point.startswith("SP") else "ohne Ortsangabe")
+        digits = "".join(c for c in point if c.isdigit())
+        location_rows.append([point, int(digits) if digits else None, kind, 0])
+    location_rows.sort(key=lambda r: (r[2], r[1] if r[1] is not None else 0, r[0]))
+    for index, entry in enumerate(location_rows):
+        entry[3] = index
 
     tables = {
         "fact_delivery": (FACT_DELIVERY, fact_rows),
@@ -139,6 +153,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
         "fact_location_allocation": (FACT_LOCATION_ALLOCATION, allocation_rows),
         "dim_location": (DIM_LOCATION, location_rows),
         "dim_structure": (DIM_STRUCTURE, structure_rows),
+        "fact_delivery_log": (FACT_DELIVERY_LOG, log_rows),
     }
 
     workbook = ctx.cfg.root / ctx.cfg["powerbi"]["workbook"]
@@ -148,6 +163,16 @@ def run(task: Task, ctx: Context) -> TaskResult:
     problems += _referential_problems(fact_rows, area_rows, date_rows, materials, suppliers, start, end)
     problems += _lv_referential_problems(lv_facts, lv_positions, area_rows, date_rows, group_rows)
     problems += _location_referential_problems(allocation_rows, location_rows, area_rows, date_rows)
+    point_keys = {row[0] for row in location_rows}
+    group_keys = {row[0] for row in group_rows}
+    date_keys = {row[0] for row in date_rows}
+    for row in log_rows:
+        if row[2] not in point_keys:
+            problems.append(f"fk_log_ort_fehlt:{row[2]}")
+        if row[4] not in group_keys:
+            problems.append(f"fk_log_gruppe_fehlt:{row[4]}")
+        if row[1] not in date_keys:
+            problems.append(f"fk_log_datum_fehlt:{row[1]}")
     if problems:
         return TaskResult(ok=False, message="Modellpruefung: " + ";".join(sorted(set(problems))[:6]), error_class="model_invalid")
 
@@ -331,6 +356,33 @@ def _read_structures(work_dir: Path) -> list[list]:
     return rows
 
 
+def _read_log_locations(work_dir: Path) -> tuple[list[list], set[str], list[str]]:
+    """Ortsauswertung des Lieferlogs, erzeugt von T4b."""
+    path = work_dir / "13_delivery_log_by_location.csv"
+    if not path.exists():
+        return [], set(), []
+    rows: list[list] = []
+    points: set[str] = set()
+    months: list[str] = []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh, delimiter=";"):
+            month = row.get("period_month", "")
+            point = row.get("location_label", "") or "ohne Ortsangabe"
+            if not month:
+                continue
+            months.append(month)
+            points.add(point)
+            deliveries = _num(row.get("deliveries"))
+            rows.append([
+                month, date.fromisoformat(f"{month}-01"), point,
+                row.get("material_key", ""), row.get("material_group", "") or "nicht_zugeordnet",
+                row.get("charge_type", ""), row.get("plant", ""),
+                int(deliveries) if deliveries is not None else None,
+                _num(row.get("delivered_t")), row.get("source", "supplier_log"),
+            ])
+    return rows, points, months
+
+
 def _location_referential_problems(allocations, locations, area_rows, date_rows) -> list[str]:
     problems = []
     point_keys = {r[0] for r in locations}
@@ -435,6 +487,11 @@ DIVIDE (
     CALCULATE ( [Liefermenge t], fact_delivery[location_type] = "none" ),
     [Liefermenge t]
 )
+
+// Zweitquelle Lieferlog. Nie mit der ERP Menge addieren: beide beschreiben in
+// ihrem Ueberlappungszeitraum dieselben Fuhren.
+Liefermenge t laut Lieferlog =
+CALCULATE ( SUM ( fact_delivery_log[delivered_t] ), fact_delivery_log[charge_type] = "material_supply" )
 
 Offene Prueffaelle =
 CALCULATE ( COUNTROWS ( fact_delivery ), fact_delivery[needs_review] = 1 )

@@ -66,23 +66,33 @@ nur als Spanne dastehen.
 
 ## 4. Fahrplan
 
-### Phase 1 - Ortsaufloesung ueber das Lieferlog (groesster Hebel)
+### Phase 1 - Zweitquelle Lieferlog nutzen (umgesetzt)
 
-Ziel: aus "SP122-SP131" wird "SP124: 2.100 t, SP127: 3.400 t, ...".
+Die urspruengliche Idee war, die Spannen im Wareneingang ueber das Lieferlog
+punktscharf aufzuloesen. Die Messung hat sie widerlegt: von den 88.624 t auf
+Spannen liegen nur 10.278 t im Ueberlappungszeitraum beider Quellen. Ein
+Aufloesen ueber das Log erreicht also hoechstens zwoelf Prozent der Spannen.
+Ebenso wenig traegt ein aus den Daten abgeleitetes Setzpunktprofil: nur 19
+Setzpunkte haben ueberhaupt eine punktscharfe Beobachtung, davon acht in
+mehreren Bereichen.
 
-1. Lieferlog als zweite Quelle in die Pipeline aufnehmen, mit eigenem
-   `source_system`, nicht in die Menge gemischt.
-2. Zuordnung Lieferlogzeile zu ERP Zeile in dieser Reihenfolge:
-   Lieferscheinnummer, sonst Datum plus Menge plus Material, sonst
-   Datum plus Material. Jede Zuordnung traegt ihre Methode und eine Guete.
-3. Wo eine Zuordnung eindeutig ist, uebernimmt der ERP Satz den Ort **und** das
-   echte Lieferdatum aus dem Lieferschein. Beides wird als abgeleitet markiert,
-   der ERP Wert bleibt in einer eigenen Spalte stehen.
-4. Ergebnis: `location_source` = erp_note, supplier_log oder none. Im Dashboard
-   filterbar, damit jederzeit sichtbar ist, worauf eine Zahl beruht.
+Der tatsaechliche Wert des Lieferlogs liegt woanders und ist groesser:
 
-Erwartetes Ergebnis: Ortsabdeckung von 73,8 Prozent auf ueber 90 Prozent,
-Spannenanteil deutlich unter 36 Prozent, echte Tagesverlaeufe.
+- Es fuehrt **210.065 t** und ordnet **88,4 Prozent davon einem einzelnen
+  Setzpunkt oder Querungsbauwerk** zu, ohne eine einzige Spanne.
+- **191.379 t entfallen auf den Zeitraum vor Januar 2026**, den der
+  Wareneingangsexport gar nicht abdeckt. Dort ist das Log die einzige
+  Ortsquelle, die es gibt.
+
+Umgesetzt ist deshalb: das Log steht als eigene Faktentabelle
+`fact_delivery_log` im Modell, mit denselben Dimensionen fuer Ort, Datum und
+Materialgruppe. Beide Quellen sind im Dashboard nebeneinander auswertbar und
+werden nie addiert, weil sie sich im Ueberlappungszeitraum auf dieselben Fuhren
+beziehen.
+
+Offen bleibt: die 88.624 t auf Spannen im Wareneingang. Sie punktscharf zu
+machen, geht nur ueber die Belege selbst oder ueber eine kuenftig verbindliche
+Ortsangabe je Fuhre.
 
 ### Phase 2 - Vollstaendigkeit des Bestands
 

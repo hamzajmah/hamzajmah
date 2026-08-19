@@ -254,7 +254,51 @@ def _location_section(ctx: Context) -> str:
         "Die Spalte ganz rechts ist eine Sicht, kein Nachweis. Belegt ist ausschliesslich die Spalte davor.",
         "",
     ]
+    lines += _log_location_lines(ctx)
     return "\n".join(lines)
+
+
+def _log_location_lines(ctx: Context) -> list[str]:
+    """Zweitquelle Lieferlog: deckt den Zeitraum ab, den das ERP nicht kennt."""
+    import csv as _csv
+
+    path = ctx.work_dir / "13_delivery_log_by_location.csv"
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        rows = [r for r in _csv.DictReader(fh, delimiter=";") if r["charge_type"] == "material_supply"]
+    if not rows:
+        return []
+
+    period_start = ctx.cfg.period[0].strftime("%Y-%m")
+    before = [r for r in rows if r["period_month"] < period_start]
+    by_kind: dict[str, float] = defaultdict(float)
+    for row in rows:
+        by_kind[row["location_type"]] += float(row["delivered_t"] or 0)
+    total = sum(by_kind.values())
+
+    lines = [
+        "### Zweitquelle Lieferlog des Lieferanten",
+        "",
+        f"Das Lieferlog fuehrt {_fmt(total)} t und ordnet davon {_fmt(100 * (by_kind.get('point', 0) + by_kind.get('crossing', 0)) / total, 1)} "
+        "Prozent einem einzelnen Setzpunkt oder Querungsbauwerk zu, ohne eine einzige Spanne. Es ist damit ortsscharfer "
+        "als der Wareneingang.",
+        "",
+        f"Fuer den Zeitraum vor {period_start}, den der Wareneingangsexport nicht abdeckt, enthaelt es "
+        f"**{_fmt(sum(float(r['delivered_t'] or 0) for r in before))} t**. Diese Menge steht im Modell in einer eigenen "
+        "Tabelle (`fact_delivery_log`) und wird nie zur ERP Menge addiert: im Ueberlappungszeitraum beschreiben beide "
+        "Quellen dieselben Fuhren.",
+        "",
+        "| Ort laut Lieferlog | Menge t vor dem ERP Zeitraum |",
+        "|---|---:|",
+    ]
+    top: dict[str, float] = defaultdict(float)
+    for row in before:
+        top[row["location_label"]] += float(row["delivered_t"] or 0)
+    for label, quantity in sorted(top.items(), key=lambda kv: -kv[1])[:10]:
+        lines.append(f"| {label} | {_fmt(quantity)} |")
+    lines.append("")
+    return lines
 
 
 def _lv_section(ctx: Context) -> str:

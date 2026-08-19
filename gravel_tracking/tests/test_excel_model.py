@@ -17,6 +17,7 @@ from src.tasks.model_build import (
     DIM_STRUCTURE,
     DIM_SUPPLIER,
     FACT_DELIVERY,
+    FACT_DELIVERY_LOG,
     FACT_LOCATION_ALLOCATION,
     FACT_LV_BILLING,
 )
@@ -34,6 +35,7 @@ EXPECTED = {
     "fact_location_allocation": FACT_LOCATION_ALLOCATION,
     "dim_location": DIM_LOCATION,
     "dim_structure": DIM_STRUCTURE,
+    "fact_delivery_log": FACT_DELIVERY_LOG,
 }
 
 

@@ -55,6 +55,10 @@ Zu importieren:
 | `dim_material_group` | Bruecke zwischen Material und LV Gruppe | 4 |
 | `dim_supplier` | Lieferanten | 1 |
 | `dim_lv_position` | LV Positionen mit Kurztext, Kapitelpfad, Vertragsmenge | rund 2.900 |
+| `fact_location_allocation` | Lieferung je Setzpunkt, mit Methode exact oder even_split | rund 40.000 |
+| `dim_location` | Setzpunkte und Querungsbauwerke | 175 |
+| `dim_structure` | Bauwerksflaechen mit Kilometrierung und Bauweise | 73 |
+| `fact_delivery_log` | Zweitquelle Lieferlog, deckt den Zeitraum vor dem ERP Bestand ab | rund 200 |
 
 In Power Query nichts umbauen. Nur pruefen, dass `delivery_date`,
 `billing_date` und `date` als Datum erkannt sind und alle Mengenspalten als
@@ -89,6 +93,12 @@ Konkret anzulegen:
 | `fact_lv_billing[area_key]` | `dim_area[area_key]` | n:1, einfach |
 | `fact_lv_billing[material_group]` | `dim_material_group[material_group]` | n:1, einfach |
 | `fact_lv_billing[lv_position_no]` | `dim_lv_position[lv_position_no]` | n:1, einfach |
+| `fact_location_allocation[location_point]` | `dim_location[location_point]` | n:1, einfach |
+| `fact_location_allocation[delivery_date]` | `dim_date[date]` | n:1, einfach |
+| `fact_location_allocation[area_key]` | `dim_area[area_key]` | n:1, einfach |
+| `fact_delivery_log[location_point]` | `dim_location[location_point]` | n:1, einfach |
+| `fact_delivery_log[period_date]` | `dim_date[date]` | n:1, einfach |
+| `fact_delivery_log[material_group]` | `dim_material_group[material_group]` | n:1, einfach |
 
 `dim_date` als Datumstabelle markieren (Spalte `date`). Beide Faktentabellen
 haengen an denselben drei Dimensionen `dim_date`, `dim_area` und
@@ -169,3 +179,5 @@ aendert sich die Konfiguration im Projekt (`conversion_factors.yaml`,
 | Datumsachse mit Luecken | Datum aus der Faktentabelle statt `dim_date` | Achse aus `dim_date[date]` ziehen |
 | Delta springt beim Filtern auf einen Bereich | Schottertragschicht wird im LV projektweit gefuehrt | Vergleich dieser Gruppe nur auf Projektebene, siehe DECISIONS.md |
 | Werte doppelt | bidirektionale Beziehung | auf einfache Filterrichtung zuruecksetzen |
+| Menge doppelt so hoch wie erwartet | ERP Menge und Lieferlog addiert | beide Quellen getrennt zeigen, nie summieren |
+| Setzpunkt zeigt 0 t | nur Spannen beruehren ihn | auf `allocation_method` achten, exact und even_split trennen |

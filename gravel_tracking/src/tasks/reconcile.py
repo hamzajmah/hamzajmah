@@ -14,10 +14,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from ..config import load_lv_mapping
 from ..decisions import Decision
 from ..harness import Context, TaskResult
 from ..locations import parse as parse_location
-from ..materials import CHARGE_SUPPLY
+from ..materials import CHARGE_SUPPLY, classify
 from ..state import Task
 
 MONTH_COLUMNS = [
@@ -25,6 +26,11 @@ MONTH_COLUMNS = [
     "difference_t", "difference_pct", "coverage_note",
 ]
 LOCATION_COLUMNS = ["location_label", "location_type", "log_t", "erp_t", "difference_t", "coverage_note"]
+LOG_LOCATION_COLUMNS = [
+    "period_month", "location_label", "location_type", "sp_number",
+    "material_key", "material_group", "charge_type", "plant",
+    "deliveries", "delivered_t", "first_delivery", "last_delivery", "source",
+]
 _LS = re.compile(r"(\d{4,})")
 
 
@@ -62,8 +68,9 @@ def _read_log(path: Path, sheet: str) -> list[dict[str, Any]]:
         place_text = str(row.get(columns.get("BAUSELLE", columns.get("BAUSTELLE", "")), "") or "")
         note = str(row.get(columns.get("LIEFERSCHEIN NR", ""), "") or "")
         ls = _LS.search(note)
+        material_text = str(row.get(columns.get("GEMISCH", ""), "") or "").strip()
         rows.append({
-            "day": day, "t": quantity, "material": str(row.get(columns.get("GEMISCH", ""), "") or "").strip(),
+            "day": day, "t": quantity, "material": material_text, "info": classify(material_text),
             "place_text": place_text, "place": parse_location(place_text),
             "plant": str(row.get(columns.get("WERK", ""), "") or "").strip(),
             "ls": ls.group(1) if ls else "",
@@ -180,6 +187,10 @@ def run(task: Task, ctx: Context) -> TaskResult:
             evidence="work/11_reconciliation_by_location.csv",
         ))
 
+    _write_log_locations(ctx, log)
+
+    _add_location_quality_decision(ctx, log)
+
     ctx.log(
         f"RECONCILE log_zeilen={len(log)} log_t={log_total:.0f} erp_t={erp_total:.0f} "
         f"monate_nur_log={len(log_only_months)} werke={len(plants)} ls_treffer={ls_overlap}"
@@ -189,6 +200,83 @@ def run(task: Task, ctx: Context) -> TaskResult:
         "months_log_only": log_only_months, "log_only_t": log_only_t,
         "plants": len(plants), "ls_matches": ls_overlap,
     })
+
+
+def _add_location_quality_decision(ctx: Context, log: list[dict[str, Any]]) -> None:
+    """Das Lieferlog ist ortsscharf, wo das ERP nur Spannen kennt."""
+    supply = [r for r in log if r["info"].charge_type == CHARGE_SUPPLY]
+    if not supply:
+        return
+    total = sum(r["t"] for r in supply)
+    exact = sum(r["t"] for r in supply if r["place"].location_type in ("point", "crossing"))
+    spans = sum(r["t"] for r in supply if r["place"].location_type == "span")
+    erp = [r for r in ctx.store.records() if r.charge_type == CHARGE_SUPPLY and not r.is_duplicate]
+    erp_total = sum(r.quantity_t or 0.0 for r in erp)
+    erp_exact = sum(r.quantity_t or 0.0 for r in erp if r.location_type in ("point", "crossing"))
+
+    ctx.decisions.add(Decision(
+        category=6,
+        topic="Das Lieferlog ist ortsscharfer als der Wareneingang",
+        detail=(
+            f"Im Lieferlog sind {100 * exact / total:.1f} Prozent der Menge einem einzelnen Setzpunkt oder "
+            f"Querungsbauwerk zugeordnet und {100 * spans / total:.1f} Prozent einer Spanne. Im Wareneingang sind es "
+            f"{100 * erp_exact / erp_total:.1f} Prozent punktscharf."
+        ),
+        impact=(
+            "Fuer den Zeitraum vor dem ERP Bestand ist das Log die einzige Ortsquelle. Beide Quellen stehen im Modell "
+            "getrennt (fact_delivery und fact_delivery_log) und duerfen nie addiert werden, weil sie sich im "
+            "Ueberlappungszeitraum auf dieselben Fuhren beziehen."
+        ),
+        proposal=(
+            "Fuer die Ortsauswertung vor 2026 das Lieferlog verwenden, ab 2026 den Wareneingang. Dauerhaft besser: "
+            "die Ortsangabe im Wareneingang je Fuhre punktscharf erfassen."
+        ),
+        evidence="work/13_delivery_log_by_location.csv",
+    ))
+
+
+def _write_log_locations(ctx: Context, log: list[dict[str, Any]]) -> None:
+    """Ortsauswertung des Lieferlogs als eigene Quelle.
+
+    Das Log deckt einen Zeitraum ab, fuer den es keinen Wareneingangsexport
+    gibt. Seine Ortsangaben sind dort die einzige Information, wohin geliefert
+    wurde. Sie werden getrennt gefuehrt, nie in die ERP Menge gemischt.
+    """
+    material_to_group = load_lv_mapping(ctx.cfg).get("material_to_group") or {}
+    buckets: dict[tuple, dict[str, Any]] = {}
+    for row in log:
+        info = row["info"]
+        place = row["place"]
+        material_key = f"{info.material_class} {info.grain_size}".strip()
+        key = (
+            row["day"].strftime("%Y-%m"),
+            place.location_label or "ohne Ortsangabe",
+            place.location_type,
+            place.location_from,
+            material_key,
+            material_to_group.get(material_key, "nicht_zugeordnet"),
+            info.charge_type,
+            row["plant"],
+        )
+        bucket = buckets.setdefault(key, {"n": 0, "t": 0.0, "days": []})
+        bucket["n"] = int(bucket["n"]) + 1
+        bucket["t"] = float(bucket["t"]) + row["t"]
+        bucket["days"].append(row["day"].isoformat())
+
+    rows = []
+    for key in sorted(buckets, key=lambda k: tuple("" if v is None else str(v) for v in k)):
+        month, label, kind, number, material_key, group, charge, plant = key
+        bucket = buckets[key]
+        days = sorted(bucket["days"])
+        rows.append({
+            "period_month": month, "location_label": label, "location_type": kind,
+            "sp_number": number, "material_key": material_key, "material_group": group,
+            "charge_type": charge, "plant": plant, "deliveries": bucket["n"],
+            "delivered_t": round(float(bucket["t"]), 2),
+            "first_delivery": days[0], "last_delivery": days[-1],
+            "source": "supplier_log",
+        })
+    _write(ctx.work_dir / "13_delivery_log_by_location.csv", LOG_LOCATION_COLUMNS, rows)
 
 
 def _write(path: Path, columns: list[str], rows: list[dict]) -> None:

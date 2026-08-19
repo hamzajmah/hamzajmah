@@ -20,6 +20,15 @@ _ROCK = {
     "rundkorn": "Rundkorn",
 }
 
+# Dasselbe Material, drei Schreibweisen: der IFS Wareneingang nennt es
+# Mineralgemisch, das Lieferlog des Lieferanten Baustoffgemisch, Korngemisch
+# oder Frostschutz.
+_MIXTURE_TOKENS = (
+    "mineralgemisch", "baustoffgemisch", "bausoffgemisch", "korngemisch",
+    "schotter", "splitt", "frostschutz", "frostchutz",
+)
+_MIXTURE_SAND_TOKENS = ("natursand", "fss", "frostschutz", "frostchutz")
+
 CHARGE_SUPPLY = "material_supply"
 CHARGE_DISPOSAL = "disposal_acceptance"
 CHARGE_SURCHARGE = "surcharge"
@@ -68,18 +77,22 @@ def classify(material_text: str) -> MaterialInfo:
         charge = CHARGE_SURCHARGE
     elif "frachtkosten" in low:
         charge = CHARGE_FREIGHT
-    elif low.startswith("annahme") or "annahme " in low:
+    elif low.startswith("annahme") or "annahme " in low or "erdaushub" in low or "bohrklein" in low:
+        # Der IFS Wareneingang schreibt "Annahme Erdaushub ...", das Lieferlog
+        # nur "Erdaushub ...". Beides ist Entsorgung, keine Lieferung.
         charge = CHARGE_DISPOSAL
         if "erdaushub" in low:
             material_class = "excavated_soil"
         elif "bohrklein" in low:
             material_class = "drill_cuttings"
-    elif "mineralgemisch" in low or "schotter" in low or "splitt" in low:
+    elif any(token in low for token in _MIXTURE_TOKENS):
         charge = CHARGE_SUPPLY
         material_class = "mineral_mixture"
     elif "sand" in low or "kabelsand" in low:
         charge = CHARGE_SUPPLY
-        material_class = "sand"
+        # "FSS 0/45 Natursand" ist Frostschutzmaterial, kein Bettungssand.
+        # Der Zusatz entscheidet, nicht das Wort Sand.
+        material_class = "mineral_mixture" if any(t in low for t in _MIXTURE_SAND_TOKENS) else "sand"
 
     if charge == CHARGE_SUPPLY:
         g = _GRAIN.search(core)

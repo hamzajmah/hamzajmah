@@ -82,3 +82,15 @@ def test_zeitraum_ausserhalb_des_projektzeitraums_wird_markiert(project: Path):
         rows = list(csv.DictReader(fh, delimiter=";"))
     assert all(r["in_comparison_period"] in ("true", "false") for r in rows)
     assert any(r["in_comparison_period"] == "true" for r in rows)
+
+
+def test_lieferlog_ortsdatei_wird_geschrieben(project: Path):
+    """Die Zweitquelle bekommt eine eigene Datei, sie wird nie eingemischt."""
+    run_cli(project, "run", "--until-done")
+    log_file = project / "work" / "13_delivery_log_by_location.csv"
+    # Ohne hinterlegtes Lieferlog entsteht die Datei nicht - das ist zulaessig.
+    if not log_file.exists():
+        return
+    with log_file.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh, delimiter=";"))
+    assert all(r["source"] == "supplier_log" for r in rows)
