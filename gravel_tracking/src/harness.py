@@ -60,6 +60,9 @@ class Harness:
         self.started = time.monotonic()
         self.processed_this_run = 0
         self.abort_reason = ""
+        # Die Abbruchkriterien beziehen sich auf den laufenden Durchlauf. Sonst
+        # koennte ein Lauf nach einem Abbruch nie wieder aufgenommen werden.
+        self.outcomes: list[dict[str, Any]] = []
 
     # -- Budget und Abbruch ---------------------------------------------
     def _runtime_minutes(self) -> float:
@@ -76,7 +79,7 @@ class Harness:
         return ""
 
     def _abort_condition(self) -> str:
-        outcomes = self.ctx.state.meta["recent_outcomes"]
+        outcomes = self.outcomes
         window = int(self.budget["abort_error_rate_window"])
         recent = outcomes[-window:]
         if len(recent) == window:
@@ -146,8 +149,9 @@ class Harness:
         task.attempts += 1
         task.attempts_at_level += 1
         task.updated_at = now_iso()
-        state.meta["recent_outcomes"].append({"ok": result.ok, "error_class": result.error_class or ""})
-        state.meta["recent_outcomes"] = state.meta["recent_outcomes"][-200:]
+        outcome = {"ok": result.ok, "error_class": result.error_class or ""}
+        self.outcomes.append(outcome)
+        state.meta["recent_outcomes"] = (state.meta["recent_outcomes"] + [outcome])[-200:]
 
         if result.ok:
             task.status = DONE

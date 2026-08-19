@@ -7,7 +7,16 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from src.excel_out import verify_workbook
-from src.tasks.model_build import DIM_AREA, DIM_DATE, DIM_LV_POSITION, DIM_MATERIAL, DIM_SUPPLIER, FACT_DELIVERY, FACT_LV_BILLING
+from src.tasks.model_build import (
+    DIM_AREA,
+    DIM_DATE,
+    DIM_LV_POSITION,
+    DIM_MATERIAL,
+    DIM_MATERIAL_GROUP,
+    DIM_SUPPLIER,
+    FACT_DELIVERY,
+    FACT_LV_BILLING,
+)
 from tests.conftest import run_cli
 
 EXPECTED = {
@@ -16,6 +25,7 @@ EXPECTED = {
     "dim_area": DIM_AREA,
     "dim_date": DIM_DATE,
     "dim_material": DIM_MATERIAL,
+    "dim_material_group": DIM_MATERIAL_GROUP,
     "dim_supplier": DIM_SUPPLIER,
     "dim_lv_position": DIM_LV_POSITION,
 }

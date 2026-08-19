@@ -10,7 +10,7 @@ from ..harness import Context, TaskResult
 from ..state import Task
 
 FACT_DELIVERY = [
-    "record_id", "delivery_date", "area_key", "material_key", "supplier_key", "lv_position_no",
+    "record_id", "delivery_date", "area_key", "material_key", "material_group", "supplier_key",
     "charge_type", "doc_type", "source_system", "source_file", "source_row_ref",
     "delivery_note_no", "delivery_note_source", "activity_id", "activity_text", "unload_location_text",
     "quantity", "unit", "quantity_t", "quantity_m3_doc",
@@ -18,12 +18,13 @@ FACT_DELIVERY = [
     "conversion_confidence", "price_per_unit", "amount_eur",
     "extraction_method", "extraction_confidence", "is_duplicate", "needs_review", "review_reason",
 ]
-FACT_LV_BILLING = ["lv_position_no", "area_key", "period_month", "unit", "contract_quantity", "billed_quantity", "unit_price_eur", "billed_revenue_eur", "source"]
+FACT_LV_BILLING = ["lv_position_no", "billing_date", "period_month", "area_key", "material_group", "unit", "billed_quantity", "billed_value_eur", "lv_source"]
 DIM_AREA = ["area_key", "area_name", "area_class", "area_group", "is_assigned"]
 DIM_DATE = ["date", "year", "month", "year_month", "month_name_de", "quarter", "iso_week", "is_weekend"]
 DIM_MATERIAL = ["material_key", "material_class", "grain_size", "rock_type", "is_gravel_supply", "bulk_density_t_per_m3", "installed_density_t_per_m3", "compaction_factor", "conversion_confidence", "conversion_source"]
 DIM_SUPPLIER = ["supplier_key", "supplier_name", "records"]
-DIM_LV_POSITION = ["lv_position_no", "short_text", "unit", "contract_quantity", "area_key", "source"]
+DIM_LV_POSITION = ["lv_position_no", "short_text", "group_path", "area_key", "material_group", "unit", "contract_quantity", "billed_quantity_total", "unit_price_eur", "lv_source", "is_gravel_relevant"]
+DIM_MATERIAL_GROUP = ["material_group", "label", "consumes_delivered_material", "fed_by_materials", "note"]
 
 MONTHS_DE = ["Januar", "Februar", "Maerz", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
@@ -36,9 +37,21 @@ def _supplier_key(name: str) -> str:
     return (name or "unbekannt").strip()[:80]
 
 
+def _load_mapping(ctx: Context) -> dict:
+    import yaml
+
+    rel = ctx.cfg["paths"].get("lv_mapping", "")
+    path = (ctx.cfg.root / rel) if rel else None
+    if path is None or not path.is_file():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
 def run(task: Task, ctx: Context) -> TaskResult:
     records = [r for r in ctx.store.records() if not r.is_duplicate]
     factors = (ctx.factors.get("factors") or {})
+    mapping = _load_mapping(ctx)
+    material_to_group = mapping.get("material_to_group") or {}
 
     fact_rows = []
     areas: dict[str, list[str]] = {}
@@ -61,7 +74,8 @@ def run(task: Task, ctx: Context) -> TaskResult:
                 entry.get("compaction_factor"), rec.conversion_confidence or "none", rec.conversion_source or "",
             ]
         fact_rows.append([
-            rec.record_id, rec.delivery_date, area_key, material_key, supplier_key, "",
+            rec.record_id, rec.delivery_date, area_key, material_key,
+            material_to_group.get(f"{rec.material_class} {rec.grain_size}".strip(), "nicht_zugeordnet"), supplier_key,
             rec.charge_type, rec.doc_type, rec.source_system, rec.source_file, rec.source_row_ref,
             rec.delivery_note_no, rec.delivery_note_source, rec.activity_id, rec.activity_text, rec.unload_location_text,
             rec.quantity, rec.unit, rec.quantity_t, rec.quantity_m3_doc,
@@ -70,13 +84,21 @@ def run(task: Task, ctx: Context) -> TaskResult:
             rec.extraction_method, rec.extraction_confidence, rec.is_duplicate, rec.needs_review, rec.review_reason,
         ])
 
-    area_rows = []
-    for key in sorted(areas):
-        area_class = areas[key][0]
-        group = {"section": "Trassenabschnitte", "crossing": "Querungen", "general": "Nicht bereichsscharf"}.get(area_class, "Sonstige")
-        area_rows.append([key, key, area_class, group, 0 if area_class == "general" else 1])
+    lv_facts, lv_positions, lv_months = _read_lv_files(ctx.work_dir)
 
+    # dim_date muss jeden Schluessel beider Faktentabellen abdecken.
     start, end = ctx.cfg.period
+    delivery_dates = [r.delivery_date for r in records if r.delivery_date]
+    if delivery_dates:
+        start = min(start, min(delivery_dates))
+        end = max(end, max(delivery_dates))
+    if lv_months:
+        start = min(start, date.fromisoformat(min(lv_months) + "-01"))
+        last = date.fromisoformat(max(lv_months) + "-01")
+        end = max(end, last)
+    start = start.replace(day=1)
+    end = _end_of_month(end)
+
     date_rows = []
     day = start
     while day <= end:
@@ -86,14 +108,22 @@ def run(task: Task, ctx: Context) -> TaskResult:
         ])
         day += timedelta(days=1)
 
-    lv_rows, lv_positions = _read_lv(ctx.work_dir / "05_lv_positions.csv")
+    # Bereiche, die nur auf der LV Seite vorkommen, muessen in dim_area stehen.
+    for row in lv_facts:
+        area_key = str(row[3])
+        if area_key and area_key not in areas:
+            areas[area_key] = ["section" if area_key.startswith("AS") else ("crossing" if area_key.startswith("QR") else "unknown")]
+    area_rows = _area_rows(areas)
+
+    group_rows = _material_group_rows(mapping, fact_rows, lv_facts)
 
     tables = {
         "fact_delivery": (FACT_DELIVERY, fact_rows),
-        "fact_lv_billing": (FACT_LV_BILLING, lv_rows),
+        "fact_lv_billing": (FACT_LV_BILLING, lv_facts),
         "dim_area": (DIM_AREA, area_rows),
         "dim_date": (DIM_DATE, date_rows),
         "dim_material": (DIM_MATERIAL, [materials[k] for k in sorted(materials)]),
+        "dim_material_group": (DIM_MATERIAL_GROUP, group_rows),
         "dim_supplier": (DIM_SUPPLIER, [[k, k, suppliers[k]] for k in sorted(suppliers)]),
         "dim_lv_position": (DIM_LV_POSITION, lv_positions),
     }
@@ -103,6 +133,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
 
     problems = verify_workbook(workbook, {name: cols for name, (cols, _) in tables.items()})
     problems += _referential_problems(fact_rows, area_rows, date_rows, materials, suppliers, start, end)
+    problems += _lv_referential_problems(lv_facts, lv_positions, area_rows, date_rows, group_rows)
     if problems:
         return TaskResult(ok=False, message="Modellpruefung: " + ";".join(sorted(set(problems))[:6]), error_class="model_invalid")
 
@@ -113,22 +144,67 @@ def run(task: Task, ctx: Context) -> TaskResult:
     return TaskResult(ok=True, message=f"{len(fact_rows)} Faktenzeilen", data={"facts": len(fact_rows), "areas": len(area_rows)})
 
 
-def _read_lv(path: Path) -> tuple[list[list], list[list]]:
-    if not path.exists():
-        return [], []
-    facts, dims = [], []
-    with path.open("r", encoding="utf-8", newline="") as fh:
-        for row in csv.DictReader(fh, delimiter=";"):
-            facts.append([
-                row.get("lv_position_no", ""), row.get("area_id", ""), "", row.get("unit", ""),
-                _num(row.get("contract_quantity")), _num(row.get("billed_quantity")), _num(row.get("unit_price_eur")),
-                _mul(row.get("billed_quantity"), row.get("unit_price_eur")), row.get("source", ""),
-            ])
-            dims.append([
-                row.get("lv_position_no", ""), row.get("short_text", ""), row.get("unit", ""),
-                _num(row.get("contract_quantity")), row.get("area_id", ""), row.get("source", ""),
-            ])
-    return facts, dims
+def _area_rows(areas: dict[str, list[str]]) -> list[list]:
+    rows = []
+    labels = {"section": "Trassenabschnitte", "crossing": "Querungen", "general": "Nicht bereichsscharf"}
+    for key in sorted(areas):
+        area_class = areas[key][0]
+        rows.append([key, key, area_class, labels.get(area_class, "Sonstige"), 0 if area_class == "general" else 1])
+    return rows
+
+
+def _material_group_rows(mapping: dict, fact_rows: list[list], lv_facts: list[list]) -> list[list]:
+    used = {str(row[4]) for row in fact_rows} | {str(row[4]) for row in lv_facts}
+    groups = mapping.get("groups") or {}
+    rows = []
+    for key in sorted(used):
+        entry = groups.get(key, {})
+        rows.append([
+            key,
+            entry.get("label", "nicht zugeordnet" if key == "nicht_zugeordnet" else key),
+            1 if entry.get("consumes_delivered_material") else 0,
+            ", ".join(entry.get("fed_by_materials", [])),
+            entry.get("note", ""),
+        ])
+    return rows
+
+
+def _end_of_month(day: date) -> date:
+    following = day.replace(day=28) + timedelta(days=4)
+    return following.replace(day=1) - timedelta(days=1)
+
+
+def _read_lv_files(work_dir: Path) -> tuple[list[list], list[list], list[str]]:
+    """Liest die von T4 erzeugten LV Dateien in Fakten- und Dimensionszeilen."""
+    facts: list[list] = []
+    months: list[str] = []
+    monthly_path = work_dir / "05_lv_billing_monthly.csv"
+    if monthly_path.exists():
+        with monthly_path.open("r", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh, delimiter=";"):
+                month = row.get("period_month", "")
+                if not month:
+                    continue
+                months.append(month)
+                facts.append([
+                    row.get("lv_position_no", ""), date.fromisoformat(f"{month}-01"), month,
+                    row.get("area_key", ""), row.get("material_group", "") or "nicht_zugeordnet",
+                    row.get("unit", ""), _num(row.get("billed_quantity")), _num(row.get("billed_value_eur")), "",
+                ])
+
+    dims: list[list] = []
+    positions_path = work_dir / "05_lv_positions.csv"
+    if positions_path.exists():
+        with positions_path.open("r", encoding="utf-8", newline="") as fh:
+            for row in csv.DictReader(fh, delimiter=";"):
+                dims.append([
+                    row.get("lv_position_no", ""), row.get("short_text", ""), row.get("group_path", ""),
+                    row.get("area_key", ""), row.get("material_group", "") or "nicht_zugeordnet",
+                    row.get("unit", ""), _num(row.get("contract_quantity")), _num(row.get("billed_quantity")),
+                    _num(row.get("unit_price_eur")), row.get("lv_source", ""),
+                    1 if row.get("is_gravel_relevant") == "true" else 0,
+                ])
+    return facts, dims, months
 
 
 def _num(value) -> float | None:
@@ -152,13 +228,31 @@ def _referential_problems(fact_rows, area_rows, date_rows, materials, suppliers,
             problems.append(f"fk_area_fehlt:{row[2]}")
         if row[3] not in materials:
             problems.append(f"fk_material_fehlt:{row[3]}")
-        if row[4] not in suppliers:
-            problems.append(f"fk_supplier_fehlt:{row[4]}")
+        if row[5] not in suppliers:
+            problems.append(f"fk_supplier_fehlt:{row[5]}")
         if row[1] is not None and row[1] not in date_keys:
             problems.append(f"fk_datum_ausserhalb_dim_date:{row[1]}")
     expected_days = (end - start).days + 1
     if len(date_rows) != expected_days:
         problems.append("dim_date_unvollstaendig")
+    return problems
+
+
+def _lv_referential_problems(lv_facts, lv_positions, area_rows, date_rows, group_rows) -> list[str]:
+    problems = []
+    area_keys = {r[0] for r in area_rows}
+    date_keys = {r[0] for r in date_rows}
+    group_keys = {r[0] for r in group_rows}
+    position_keys = {r[0] for r in lv_positions}
+    for row in lv_facts:
+        if row[0] not in position_keys:
+            problems.append(f"fk_lv_position_fehlt:{row[0]}")
+        if row[3] and row[3] not in area_keys:
+            problems.append(f"fk_lv_area_fehlt:{row[3]}")
+        if row[4] not in group_keys:
+            problems.append(f"fk_lv_gruppe_fehlt:{row[4]}")
+        if row[1] not in date_keys:
+            problems.append(f"fk_lv_datum_fehlt:{row[1]}")
     return problems
 
 
@@ -181,7 +275,11 @@ CALCULATE ( SUM ( fact_delivery[delivered_m3_loose] ), fact_delivery[charge_type
 Annahmemenge t =
 CALCULATE ( SUM ( fact_delivery[quantity_t] ), fact_delivery[charge_type] = "disposal_acceptance" )
 
+// Die abgerechnete Menge kommt aus der Leistungsmeldung. Die Monatsverteilung
+// ist aus Wochenwert geteilt durch Einheitspreis abgeleitet, siehe METHOD.md.
 Abgerechnete Menge m3 = SUM ( fact_lv_billing[billed_quantity] )
+
+Abgerechneter Wert EUR = SUM ( fact_lv_billing[billed_value_eur] )
 
 Delta m3 = [Abgerechnete Menge m3] - [Liefermenge m3 eingebaut]
 
@@ -199,7 +297,7 @@ DIVIDE ( [Abgerechnete Menge m3], [Liefermenge m3 eingebaut] )
 Materialkosten EUR =
 CALCULATE ( SUM ( fact_delivery[amount_eur] ), fact_delivery[charge_type] = "material_supply" )
 
-Erloes Schotter EUR = SUM ( fact_lv_billing[billed_revenue_eur] )
+Erloes Schotter EUR = SUM ( fact_lv_billing[billed_value_eur] )
 
 Marge EUR = [Erloes Schotter EUR] - [Materialkosten EUR]
 
@@ -210,6 +308,10 @@ CALCULATE ( [Liefermenge t], FILTER ( ALLSELECTED ( dim_date[date] ), dim_date[d
 
 Anteil Bereich an Gesamtmenge % =
 DIVIDE ( [Liefermenge t], CALCULATE ( [Liefermenge t], ALL ( dim_area ) ) )
+
+Vertragsmenge m3 = SUM ( dim_lv_position[contract_quantity] )
+
+Restmenge LV m3 = [Vertragsmenge m3] - [Abgerechnete Menge m3]
 
 Offene Prueffaelle =
 CALCULATE ( COUNTROWS ( fact_delivery ), fact_delivery[needs_review] = 1 )
@@ -232,8 +334,27 @@ def _write_report_structure(path: Path, ctx: Context) -> None:
 Datenquelle: `gravel_model.xlsx`, je Blatt eine Tabelle (ListObject).
 Der Pfad wird in Power BI als Parameter `DataFolder` angelegt, siehe METHOD.md.
 
+## Beziehungen im Sternschema
+
+| von | nach | Kardinalitaet | Richtung |
+|---|---|---|---|
+| fact_delivery[area_key] | dim_area[area_key] | n:1 | einfach |
+| fact_delivery[delivery_date] | dim_date[date] | n:1 | einfach |
+| fact_delivery[material_key] | dim_material[material_key] | n:1 | einfach |
+| fact_delivery[material_group] | dim_material_group[material_group] | n:1 | einfach |
+| fact_delivery[supplier_key] | dim_supplier[supplier_key] | n:1 | einfach |
+| fact_lv_billing[area_key] | dim_area[area_key] | n:1 | einfach |
+| fact_lv_billing[billing_date] | dim_date[date] | n:1 | einfach |
+| fact_lv_billing[material_group] | dim_material_group[material_group] | n:1 | einfach |
+| fact_lv_billing[lv_position_no] | dim_lv_position[lv_position_no] | n:1 | einfach |
+
+dim_area, dim_date und dim_material_group filtern beide Faktentabellen. Genau
+darueber entsteht der Vergleich Lieferung gegen Abrechnung im selben Visual.
+
 ## Seite 1 - Management Summary
 - KPI Kacheln: Liefermenge t, Liefermenge m3 eingebaut, Abgerechnete Menge m3, Deckungsgrad %, Offene Prueffaelle
+- Datumsfilter auf den gemeinsamen Zeitraum von Lieferung und Abrechnung setzen, sonst vergleicht der Bericht
+  Zeitraeume, in denen nur eine Seite Daten hat
 - Wasserfall: Liefermenge je Bereichsgruppe (Abschnitte, Querungen, nicht bereichsscharf)
 - Hinweisbanner, solange das Ergebnis vorlaeufig ist (Anteil Menge in Pruefung %)
 

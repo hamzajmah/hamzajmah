@@ -1,0 +1,80 @@
+# Zuordnung LV Position <-> geliefertes Material.
+#
+# STATUS: VORSCHLAG. Diese Zuordnung ist fachlich freizugeben. Sie entscheidet,
+# gegen welche LV Menge eine Lieferung verglichen wird, und bestimmt damit das
+# Delta staerker als jede Umrechnung. Bis zur Freigabe steht sie in DECISIONS.md.
+status: vorschlag
+approved_by: ""
+approved_on: ""
+
+groups:
+  gravel_base_layer:
+    label: "Schottertragschicht"
+    match_short_text:
+      - "Schottertragschicht"
+      - "Frostschutzschicht"
+    consumes_delivered_material: true
+    fed_by_materials: ["mineral_mixture 0/45", "mineral_mixture 50/200"]
+    note: "Baustrassen, Zufahrten, BE Flaechen und Arbeitsstreifen."
+
+  bedding_supplied:
+    label: "Bettungsmaterial geliefert und eingebaut"
+    match_short_text:
+      - "Bettungsmaterial liefern und einbauen"
+    consumes_delivered_material: true
+    fed_by_materials: ["mineral_mixture 0/8", "mineral_mixture 0/22"]
+    note: "Leitungszone. Zugekauftes Material, deshalb im Vergleich."
+
+  bedding_recycled:
+    label: "Aufbereitetes Bettungsmaterial"
+    match_short_text:
+      - "Aufbereitetes Bettungsmaterial einbauen"
+      - "Wiederverwertung Bettungsmaterial"
+    consumes_delivered_material: false
+    fed_by_materials: []
+    note: "Aus eigenem Aushub aufbereitet, kein Zukauf. Gehoert nicht in den Lieferabgleich."
+
+  sand_cover:
+    label: "Sandabdeckung"
+    match_short_text:
+      - "Sandabdeckung"
+    consumes_delivered_material: true
+    fed_by_materials: ["sand 0/2"]
+    note: "LV fuehrt diese Position in Tonnen, nicht in Kubikmetern."
+
+  soil_backfill:
+    label: "Rueckverfuellung mit Bodenmaterial"
+    match_short_text:
+      - "C-Horizont"
+      - "Verfuellung Kabelgraben"
+      - "Verfüllung Kabelgraben"
+    consumes_delivered_material: false
+    fed_by_materials: []
+    note: "Eigener Aushub, kein Zukauf."
+
+# Rueckrichtung: welches gelieferte Material zaehlt auf welche Gruppe.
+material_to_group:
+  "mineral_mixture 0/8": bedding_supplied
+  "mineral_mixture 0/22": bedding_supplied
+  "mineral_mixture 0/45": gravel_base_layer
+  "mineral_mixture 50/200": gravel_base_layer
+  "sand 0/2": sand_cover
+
+# Bereichszuordnung der LV Seite.
+# Abschnitte und Querungsbauwerke stehen im Gliederungspfad und sind belegt.
+# Die uebrigen Kapitel haben im LV keinen Bereich; der Vorschlag ordnet sie dem
+# Sammelbereich GENERAL zu, weil das IFS dieselben Leistungen dort bucht.
+area_fallback:
+  status: vorschlag
+  rules:
+    - match_group_path: "Baustelleneinrichtungsfl(ä|ae)chen|Baustra(ß|ss)en und Zufahrten|Bodenaufbereitungsfl(ä|ae)chen"
+      area_key: "GENERAL"
+    - match_group_path: "Muffengruben|Schubgruben"
+      area_key: "SCHUBGRUB"
+    - match_group_path: "Abspulpl(ä|ae)tze|Umladefl(ä|ae)chen"
+      area_key: "GENERAL"
+    # Nachtragstitel nennen die Querung haeufig als Q-Nummer, z.B.
+    # "31. Nachtrag - Q192 Radweg Umverlegung" -> QR - 192.
+    - match_group_path: "Nachtr(ä|ae)ge"
+      extract_area_from_path: "\\bQ ?(\\d{2,4})\\b"
+      area_key_template: "QR - {0}"

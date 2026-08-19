@@ -20,9 +20,23 @@ suppliers:
 paths:
   pdf_root: "data/gravel_deliveries"      # Lieferscheine/Rechnungen als PDF (aktuell leer)
   erp_exports: "data/erp"                 # IFS Wareneingangsexporte (.xlsx)
-  lv_file: ""                             # <<Aufmass/LV Excel - liegt noch nicht vor>>
+  lv_file: "data/lv/02_Leistungsmeldung_2026_CM_DE_v02_3.xlsx"
+  lv_mapping: "config/lv_mapping.yaml"
   work_dir: "work"
   output_dir: "outputs"
+
+# Leistungsmeldung: Kopfzeilen stehen ueber der Tabelle, deshalb die Zeilennummer
+# der Spaltenueberschriften je Blatt.
+lv:
+  sheets:
+    - name: "Haupt_Leistung "
+      header_row: 13
+      lv_source: "Haupt-LV"
+    - name: "Nachtrags_Leistung"
+      header_row: 12
+      lv_source: "Nachtrags-LV"
+  # Nur diese Einheiten gehen in den Mengenvergleich ein.
+  comparable_units: ["m3", "t"]
 
 # Bereichsmodell: leitet sich aus IFS Sub Project ab, solange keine PDF-Ordner existieren.
 areas:

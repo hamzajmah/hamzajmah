@@ -135,18 +135,19 @@ def run(task: Task, ctx: Context) -> TaskResult:
     add(f"- Annahme Erdaushub und Bohrklein (Gegenrichtung, keine Lieferung): **{_fmt(disposal_t, 2)} t**")
     add(f"- Tonnen auf Zuschlags- und Frachtzeilen (reine Abrechnungsbasis, nicht in der Liefermenge): **{_fmt(surcharge_t, 2)} t**")
     add("")
-    add("## 7. Doppelbuchungen")
+    add(_lv_section(ctx))
+    add("## 8. Doppelbuchungen")
     add("")
     add(f"- Als Dublette erkannt und genau einmal gezaehlt: **{quality.get('duplicates_removed', 0)} Zeilen** "
         "(gleiche Lieferscheinnummer, gleiches Datum, gleiche Positionsart, gleiche Menge). Liste in `work/03_duplicates.csv`.")
     add("- Fuer die Mengenauswertung ist der Fall bereinigt. Fuer die Rechnungspruefung ist er offen, weil die Buchung im ERP zweimal steht.")
     add("")
-    add("## 8. Datenqualitaet")
+    add("## 9. Datenqualitaet")
     add("")
     for key, value in sorted(quality.items()):
         add(f"- {key}: {value}")
     add("")
-    add("## 9. Offene Punkte aus DECISIONS.md")
+    add("## 10. Offene Punkte aus DECISIONS.md")
     add("")
     decisions = ctx.decisions.items()
     if decisions:
@@ -155,7 +156,7 @@ def run(task: Task, ctx: Context) -> TaskResult:
     else:
         add("- keine")
     add("")
-    add("## 10. Was dieser Bericht ausdruecklich nicht sagt")
+    add("## 11. Was dieser Bericht ausdruecklich nicht sagt")
     add("")
     add("- Er sagt nichts ueber Verluste oder Mehrverbrauch. Solange die Pruefliste nicht abgearbeitet ist, waere jede solche Aussage eine Vermutung.")
     add("- Er enthaelt keinen LV Abgleich, solange kein Aufmass hinterlegt ist.")
@@ -169,6 +170,82 @@ def run(task: Task, ctx: Context) -> TaskResult:
     _write_method(ctx, quality, total_t, total_m3, m3_low, m3_high)
     ctx.log(f"REPORT geschrieben, menge_gesamt_t={total_t:.2f} bereiche={len(by_area)}")
     return TaskResult(ok=True, message="Bericht geschrieben", data={"areas": len(by_area), "supply_t": round(total_t, 2)})
+
+
+def _lv_section(ctx: Context) -> str:
+    """Abgleich Lieferung gegen Leistungsmeldung, nur im gemeinsamen Zeitraum."""
+    import csv as _csv
+
+    path = ctx.work_dir / "06_comparison.csv"
+    if not path.exists():
+        return "## 7. Abgleich gegen die Leistungsmeldung\n\n- keine Vergleichsdaten\n"
+
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        rows = list(_csv.DictReader(fh, delimiter=";"))
+    inside = [r for r in rows if r["in_comparison_period"] == "true"]
+    outside = [r for r in rows if r["in_comparison_period"] != "true"]
+
+    def _sum(items, column):
+        return sum(float(r[column]) for r in items if r.get(column))
+
+    period_from, period_to = (d.strftime("%Y-%m") for d in ctx.cfg.period)
+    groups = sorted({r["material_group"] for r in inside})
+
+    lines = [
+        "## 7. Abgleich gegen die Leistungsmeldung",
+        "",
+        f"Verglichen wird ausschliesslich der gemeinsame Zeitraum {period_from} bis {period_to} und ausschliesslich "
+        "gegen das verdichtete Einbauvolumen.",
+        "",
+        "| Materialgruppe | geliefert m3 eingebaut | abgerechnet m3 | Delta m3 | Deckungsgrad | Delta bei Dichte -10% | Delta bei Dichte +10% |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for group in groups:
+        items = [r for r in inside if r["material_group"] == group]
+        installed = _sum(items, "delivered_m3_installed")
+        billed = _sum(items, "billed_m3")
+        low = _sum(items, "delivered_m3_installed_low")
+        high = _sum(items, "delivered_m3_installed_high")
+        coverage = f"{_fmt(100.0 * billed / installed, 1)} Prozent" if installed else "-"
+        lines.append(
+            f"| {group} | {_fmt(installed)} | {_fmt(billed)} | {_fmt(billed - installed)} | {coverage} | "
+            f"{_fmt(billed - high)} | {_fmt(billed - low)} |"
+        )
+    lines += [
+        "",
+        "### Bereiche mit dem groessten Delta",
+        "",
+        "| Bereich | Materialgruppe | geliefert m3 | abgerechnet m3 | Delta m3 |",
+        "|---|---|---:|---:|---:|",
+    ]
+    by_area: dict[tuple[str, str], list[float]] = {}
+    for row in inside:
+        key = (row["area_final"], row["material_group"])
+        bucket = by_area.setdefault(key, [0.0, 0.0])
+        bucket[0] += float(row["delivered_m3_installed"] or 0)
+        bucket[1] += float(row["billed_m3"] or 0)
+    ranked = sorted(by_area.items(), key=lambda kv: -abs(kv[1][1] - kv[1][0]))[:10]
+    for (area, group), (installed, billed) in ranked:
+        lines.append(f"| {area} | {group} | {_fmt(installed)} | {_fmt(billed)} | {_fmt(billed - installed)} |")
+
+    outside_billed = _sum(outside, "billed_m3")
+    lines += [
+        "",
+        f"Ausserhalb des Vergleichszeitraums weist die Leistungsmeldung {_fmt(outside_billed)} m3 abgerechnete Menge aus. "
+        "Dafuer liegen keine Lieferdaten vor, deshalb bleibt dieser Teil ausserhalb des Vergleichs.",
+        "",
+        "### Moegliche Erklaerungen fuer die Deltas, ausdruecklich als Hypothese",
+        "",
+        "- noch nicht aufgemessene oder noch nicht gemeldete Leistung",
+        "- Einbau in nicht vergueteten Bereichen wie Baustrassen, BE Flaechen und Arbeitsstreifen",
+        "- Mehrverbrauch durch Bodenaustausch, Verdraengung oder Verluste beim Einbau",
+        "- Material auf Lager, geliefert aber noch nicht eingebaut",
+        "- eine noch nicht freigegebene Zuordnung zwischen Material und LV Position",
+        "",
+        "Welche davon zutrifft, entscheidet die Bauleitung, nicht diese Auswertung.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _write_method(ctx: Context, quality: dict, total_t: float, total_m3: float, m3_low: float, m3_high: float) -> None:
@@ -226,7 +303,27 @@ def _write_method(ctx: Context, quality: dict, total_t: float, total_m3: float, 
         "",
         f"Sensitivitaet bei Dichte plus minus 10 Prozent: {total_m3:,.0f} m3 liegt zwischen {m3_low:,.0f} und {m3_high:,.0f} m3.".replace(",", "."),
         "",
-        "## 4. Dedup und Plausibilitaet",
+        "## 4. Leistungsmeldung als LV Seite",
+        "",
+        "Quelle ist die Leistungsmeldung (Blaetter Haupt_Leistung und Nachtrags_Leistung). Gelesen werden nur Zeilen "
+        "mit Eintrag in der Spalte KT, also echte LV Positionen; Zeilen ohne KT sind Gliederungsebenen und bilden den "
+        "Gliederungspfad.",
+        "",
+        "- **Bereich:** aus dem Gliederungspfad. Kapitel 4.x traegt 'Abschnitt 04S-3-xx' und wird zu AS04S-3-xx, "
+        "Kapitel 3.x.y traegt 'Querungsbauwerk Nr. NNN' und wird zu QR - NNN. Damit ist die Bereichszuordnung der "
+        "LV Seite belegt und nicht geraten.",
+        "- **Kapitel ohne Bereich** (Baustrassen, Zufahrten, BE Flaechen, Abspulplaetze, Schubgruben) werden ueber "
+        "config/lv_mapping.yaml dem Sammelbereich GENERAL bzw. SCHUBGRUB zugeordnet. Das ist ein Vorschlag und steht "
+        "in DECISIONS.md.",
+        "- **Menge:** Spalte RE MENGE ist die abgerechnete Gesamtmenge. Die monatliche Verteilung wird aus den "
+        "Wochenspalten abgeleitet: Wochenwert in Euro geteilt durch den Einheitspreis ergibt die Menge der Woche, "
+        "der Monat des Wochenmontags entscheidet. Die Spalte 'Bis KW 31/25' ist ein kumulierter Anfangsbestand und "
+        "landet vollstaendig in ihrem Monat.",
+        "- **Zuordnung Material zu LV Position:** config/lv_mapping.yaml. Positionen aus eigenem Aushub "
+        "(aufbereitetes Bettungsmaterial, Rueckverfuellung C-Horizont) sind ausdruecklich vom Lieferabgleich "
+        "ausgenommen, weil sie kein Zukaufmaterial verbrauchen.",
+        "",
+        "## 5. Dedup und Plausibilitaet",
         "",
         "- Dedup Schluessel: `supplier_name + delivery_note_no + delivery_date + charge_type + material_class + grain_size`. "
         "Die Positionsart geht in den Schluessel ein, weil eine Fuhre im ERP mehrere Zeilen erzeugt (Material, Diesel-, Samstagszuschlag).",
@@ -234,22 +331,24 @@ def _write_method(ctx: Context, quality: dict, total_t: float, total_m3: float, 
         "- Bei gleicher Nummer und abweichender Menge wird nichts verworfen, alle Saetze bleiben in der Menge und gehen in die Pruefliste.",
         "- Plausibilitaetsregeln: Menge je Lieferung 5 bis 32 t, Datum im Projektzeitraum und nicht in der Zukunft, Koernung erkannt.",
         "",
-        "## 5. Bekannte Luecken",
+        "## 6. Bekannte Luecken",
         "",
         f"- Anteil der Menge in der Pruefliste: {quality.get('review_share_pct', 0)} Prozent (Schwelle {quality.get('review_share_threshold_pct', 5)} Prozent).",
         "- Es liegen keine Lieferschein PDFs vor. Die Auswertung stuetzt sich vollstaendig auf den IFS Wareneingang.",
-        "- Es liegt kein Leistungsverzeichnis und kein Aufmassstand vor.",
+        "- Die Lieferdaten beginnen erst im Januar 2026, die Leistungsmeldung rechnet bereits ab Sommer 2025 ab. "
+        "Verglichen wird nur der gemeinsame Zeitraum.",
+        "- Der Bestand deckt eine Bestellung eines Lieferanten ab (P100042563).",
         "- Der ERP Export enthaelt keine Preise.",
         "",
-        "## 6. Was diese Auswertung nicht zeigt",
+        "## 7. Was diese Auswertung nicht zeigt",
         "",
-        "- Keinen Soll-Ist-Vergleich gegen das LV, solange kein Aufmass hinterlegt ist.",
+        "- Keinen Vergleich fuer Zeitraeume, in denen nur eine der beiden Seiten Daten hat.",
         "- Keine Materialkosten, keine Erloese, keine Marge.",
         "- Keine Aussage zu Verlusten, Bodenaustausch oder Nachtragspotenzial. Solche Einordnungen sind Hypothesen "
         "und werden erst nach Abarbeitung der Pruefliste und Freigabe der Dichtewerte belastbar.",
         "- Keine Aussage darueber, wo das Material tatsaechlich eingebaut wurde. Die Auswertung zeigt, wohin es gebucht wurde.",
         "",
-        "## 7. Anbindung in Power BI",
+        "## 8. Anbindung in Power BI",
         "",
         "Die Arbeitsmappe `outputs/powerbi/gravel_model.xlsx` enthaelt je Blatt genau eine Tabelle (ListObject) "
         "mit stabilem Namen. Power BI verbindet sich auf das ListObject, nicht auf das Blatt.",
@@ -262,7 +361,7 @@ def _write_method(ctx: Context, quality: dict, total_t: float, total_m3: float, 
         "Ueber den Ordner Konnektor funktioniert die geplante Aktualisierung ohne Gateway.",
         "3. Beim Wechsel zwischen beiden Wegen wird ausschliesslich der Parameter `DataFolder` umgestellt.",
         "",
-        "## 8. Reproduktion",
+        "## 9. Reproduktion",
         "",
         "```bash",
         "python -m src.cli run --until-done      # vollstaendiger Lauf",
