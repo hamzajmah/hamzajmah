@@ -49,6 +49,8 @@ RECORD_COLUMNS = [
     "location_from",
     "location_to",
     "location_span_count",
+    "location_source",
+    "location_confidence",
     "area_from_folder",
     "area_from_document",
     "area_final",
@@ -109,6 +111,8 @@ class DeliveryRecord(BaseModel):
     location_from: int | None = None
     location_to: int | None = None
     location_span_count: int = 0
+    location_source: str = ""
+    location_confidence: float = 0.0
     area_from_folder: str = ""
     area_from_document: str = ""
     area_final: str = ""
@@ -171,7 +175,13 @@ def plausibility_problems(record: DeliveryRecord, cfg: dict[str, Any]) -> list[s
     if record.charge_type == "material_supply" and record.quantity_t is not None and not (
         float(pl["quantity_t_min"]) <= record.quantity_t <= float(pl["quantity_t_max"])
     ):
-        problems.append(f"menge_ausserhalb_bandbreite:{record.quantity_t}")
+        # Eine Zeile ueber der Bandbreite ist meist keine falsche Fuhre, sondern
+        # eine Sammelbuchung mehrerer Fuhren. Beides bleibt in der Pruefliste,
+        # der Grund benennt aber, worum es geht.
+        if record.quantity_t > float(pl["quantity_t_max"]) and record.delivery_note_source != "document_note":
+            problems.append(f"sammelbuchung_mehrere_fuhren:{record.quantity_t}")
+        else:
+            problems.append(f"menge_ausserhalb_bandbreite:{record.quantity_t}")
     if record.delivery_date is not None:
         if record.delivery_date < period_start or record.delivery_date > period_end:
             problems.append(f"datum_ausserhalb_projektzeitraum:{record.delivery_date.isoformat()}")

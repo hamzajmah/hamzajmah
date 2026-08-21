@@ -8,7 +8,7 @@ project:
   contractor: "Denys GmbH (Leistungsgemeinschaft SuedLink, Los 4)"
   erp_system: "IFS"
   site: "1048A"
-  period_start: "2026-01-01"
+  period_start: "2024-10-01"   # frueheste belegte Lieferung, siehe Lieferlog und Tracking Mappe
   period_end: "2026-08-31"
 
 suppliers:
@@ -25,6 +25,7 @@ paths:
   structure_master: "data/master/bauwerke_kilometrierung.xlsx"
   supplier_log: "data/master/lieferlog_mineralgemisch.xlsx"
   invoice_list: "data/erp_invoices/ALLINV2.xlsx"
+  tracking_workbook: "data/tracking/Schotter_Tracking_Final_20260818.xlsx"
   work_dir: "work"
   output_dir: "outputs"
 
@@ -32,6 +33,10 @@ paths:
 structure_master:
   sheet: "Termine Beweissich."
   header_row: 4
+
+# Bestehende Tracking Mappe: ergaenzt fehlende Bestellungen und veredelt Orte.
+tracking_workbook:
+  sheet: "Lieferungen"
 
 # Rechnungsliste aus IFS: liefert Bestellnummern und Betraege, keine Mengen.
 invoice_list:

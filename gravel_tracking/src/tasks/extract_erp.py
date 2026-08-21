@@ -162,6 +162,8 @@ def run(task: Task, ctx: Context) -> TaskResult:
             location_from=place.location_from,
             location_to=place.location_to,
             location_span_count=place.span_count,
+            location_source="erp_note" if place.location_type != "none" else "",
+            location_confidence=0.98 if place.location_type in ("point", "crossing") else (0.5 if place.location_type == "span" else 0.0),
             area_from_folder=area.area_from_folder,
             area_from_document=area.area_from_document,
             area_final=area.area_final,

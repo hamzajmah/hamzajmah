@@ -147,6 +147,10 @@ def run(task: Task, ctx: Context) -> TaskResult:
     add("")
     for key, value in sorted(quality.items()):
         add(f"- {key}: {value}")
+    bulk = [r for r in supply if "sammelbuchung" in r.review_reason]
+    if bulk:
+        add(f"- davon Sammelbuchungen (eine Buchung deckt mehrere Fuhren): {len(bulk)} Zeilen, "
+            f"{_fmt(sum(r.quantity_t or 0.0 for r in bulk))} t")
     add("")
     add("## 11. Offene Punkte aus DECISIONS.md")
     add("")

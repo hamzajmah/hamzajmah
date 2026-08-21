@@ -133,10 +133,13 @@ def _spawn_downstream(rows: list[dict[str, object]], ctx: Context) -> int:
     master_id = "T0b:master_data"
     created += int(state.add(Task(task_id=master_id, type="master_data", priority=15)))
 
+    tracking_id = "T2c:tracking"
+    created += int(state.add(Task(task_id=tracking_id, type="extract_tracking", priority=35, depends_on=sorted(doc_task_ids))))
+
     clean_id, location_id = "T3:clean", "T3b:locations"
     match_id, build_id, report_id = "T4:lv_match", "T5:build_model", "T6:report"
     reconcile_id, invoice_id = "T4b:reconcile", "T4c:invoices"
-    created += int(state.add(Task(task_id=clean_id, type="clean", priority=50, depends_on=sorted(doc_task_ids))))
+    created += int(state.add(Task(task_id=clean_id, type="clean", priority=50, depends_on=sorted([*doc_task_ids, tracking_id]))))
     created += int(state.add(Task(task_id=location_id, type="locations", priority=55, depends_on=[clean_id])))
     created += int(state.add(Task(task_id=match_id, type="lv_match", priority=60, depends_on=[clean_id, location_id])))
     created += int(state.add(Task(task_id=reconcile_id, type="reconcile", priority=58, depends_on=[clean_id])))
@@ -149,7 +152,7 @@ def _spawn_downstream(rows: list[dict[str, object]], ctx: Context) -> int:
     # Aggregattasks muessen nur dann erneut laufen, wenn sich am Bestand etwas
     # geaendert hat. Genau das macht den zweiten Lauf idempotent.
     if created:
-        for tid in (master_id, clean_id, location_id, reconcile_id, invoice_id, match_id, build_id, report_id):
+        for tid in (master_id, tracking_id, clean_id, location_id, reconcile_id, invoice_id, match_id, build_id, report_id):
             agg = state.tasks[tid]
             if agg.status in (DONE, PARKED):
                 agg.status = PENDING
