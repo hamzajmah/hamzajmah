@@ -102,21 +102,24 @@ def run(task: Task, ctx: Context) -> TaskResult:
 
     wb = Workbook()
     wb.remove(wb.active)
+    materials = sorted({key[5] for key in buckets}, key=lambda m: -sum(b.menge_t for k, b in buckets.items() if k[5] == m))
     data_rows = _write_data(wb, buckets, structures)
     # Die letzte Datenzeile kommt aus dem Blatt selbst, nicht aus der Listenlaenge.
     # Eine Formel, die eine Zeile zu frueh endet, faellt niemandem auf.
     last = wb["Daten"].max_row
+    _write_factors(wb, ctx, materials, last)
+    wb.move_sheet("Faktoren", offset=-(len(wb.sheetnames) - 1))
 
     comparison = _comparison(ctx.work_dir)
     quality = _quality(ctx.work_dir)
 
     present_groups = sorted({str(row[9]) for row in data_rows})
-    _write_overview(wb, ctx, last, comparison, quality, present_groups)
+    _write_overview(wb, ctx, last, comparison, quality, present_groups, materials)
     _write_locations(wb, data_rows, last)
     _write_areas(wb, data_rows, last, comparison)
     _write_timeline(wb, data_rows, last)
     _write_material(wb, ctx, data_rows, last)
-    _write_lv(wb, comparison)
+    _write_lv(wb, comparison, last)
     _write_quality(wb, ctx, quality, last)
     _write_sources(wb, ctx)
 
@@ -160,7 +163,9 @@ def _style_header(ws: Worksheet, row: int, columns: int) -> None:
         cell.font = Font(name=FONT, bold=True, color="FFFFFF", size=10)
         cell.fill = HEAD_FILL
         cell.alignment = Alignment(vertical="center", wrap_text=True)
-    ws.freeze_panes = ws.cell(row=row + 1, column=1)
+    # Als Zeichenkette setzen: ws.cell(...) wuerde die Zelle anlegen und damit
+    # eine leere Zeile erzeugen, die alle folgenden Zeilen verschiebt.
+    ws.freeze_panes = f"A{row + 1}"
 
 
 def _title(ws: Worksheet, text: str, subtitle: str = "") -> int:
@@ -206,11 +211,21 @@ def _write_data(wb: Workbook, buckets: dict[tuple, Bucket], structures: dict) ->
             float(structure["km_von"]) if structure.get("km_von") else None,
             float(structure["km_bis"]) if structure.get("km_bis") else None,
             group, material, month,
-            b.fuhren, round(b.menge_t, 2), round(b.m3_lose, 2), round(b.m3_eingebaut, 2),
-            round(b.m3_min, 2), round(b.m3_max, 2), round(b.pruefung_t, 2),
+            b.fuhren, round(b.menge_t, 2), None, None, None, None, round(b.pruefung_t, 2),
         ])
     for row in rows:
         ws.append(row)
+
+    # Kubikmeter entstehen erst hier, aus Tonnen geteilt durch die Dichte des
+    # jeweiligen Materials. Wer im Blatt Faktoren eine Dichte aendert, sieht die
+    # Wirkung sofort in jeder Auswertung.
+    lookup = "Faktoren!$A$4:$A$40"
+    for index in range(len(rows)):
+        r = index + 2
+        ws.cell(row=r, column=15, value=f'=IFERROR($N{r}/INDEX(Faktoren!$B$4:$B$40,MATCH($K{r},{lookup},0)),"")')
+        ws.cell(row=r, column=16, value=f'=IFERROR($N{r}/INDEX(Faktoren!$C$4:$C$40,MATCH($K{r},{lookup},0)),"")')
+        ws.cell(row=r, column=17, value=f'=IFERROR($N{r}/(INDEX(Faktoren!$C$4:$C$40,MATCH($K{r},{lookup},0))*(1+Faktoren!$D$1)),"")')
+        ws.cell(row=r, column=18, value=f'=IFERROR($N{r}/(INDEX(Faktoren!$C$4:$C$40,MATCH($K{r},{lookup},0))*(1-Faktoren!$D$1)),"")')
     for row in ws.iter_rows(min_row=2, max_row=len(rows) + 1):
         for cell in row:
             cell.font = Font(name=FONT, size=9)
@@ -221,8 +236,136 @@ def _write_data(wb: Workbook, buckets: dict[tuple, Bucket], structures: dict) ->
     return rows
 
 
+def _write_factors(wb: Workbook, ctx: Context, materials: list[str], last: int = 0) -> int:
+    """Die Stellschraube des ganzen Berichts, an einer Stelle und aenderbar.
+
+    Jede Kubikmeterangabe im Bericht rechnet gegen diese Tabelle. Eine Dichte
+    hier zu aendern aendert Uebersicht, Orte, Bereiche und den LV Abgleich
+    zugleich - und macht damit sichtbar, wie stark die Aussage vom Faktor
+    abhaengt.
+    """
+    ws = wb.create_sheet("Faktoren")
+    row = _title(
+        ws,
+        "Umrechnung Tonnen in Kubikmeter",
+        "Gelbe Zellen sind aenderbar. Jede Kubikmeterzahl im Bericht rechnet gegen diese Tabelle.",
+    )
+    sensitivity = float((ctx.factors.get("defaults") or {}).get("sensitivity_pct", 10.0)) / 100.0
+    ws["D1"] = sensitivity
+    ws["D1"].number_format = "0%"
+    ws["D1"].fill = NOTE_FILL
+    ws["D1"].font = Font(name=FONT, size=10, bold=True, color="0000FF")
+    ws["E1"] = "Sensitivitaet, wirkt auf die Bandbreite"
+    ws["E1"].font = Font(name=FONT, size=9, italic=True, color="595959")
+
+    header = [
+        "Material", "Dichte lose (t/m3)", "Dichte eingebaut (t/m3)",
+        "m3 je t lose", "m3 je t eingebaut", "Quelle des Faktors", "Konfidenz",
+    ]
+    for index, name in enumerate(header, start=1):
+        ws.cell(row=row, column=index, value=name)
+    _style_header(ws, row, len(header))
+
+    factors = ctx.factors.get("factors") or {}
+    first = row + 1
+    for offset, material in enumerate(materials):
+        r = first + offset
+        entry = factors.get(material.replace(" ", "_").replace("/", "_"), {})
+        ws.cell(row=r, column=1, value=material)
+        for col, key in ((2, "bulk_density_t_per_m3"), (3, "installed_density_t_per_m3")):
+            cell = ws.cell(row=r, column=col, value=entry.get(key))
+            cell.number_format = "0.00"
+            cell.fill = NOTE_FILL
+            cell.font = Font(name=FONT, size=10, bold=True, color="0000FF")
+        ws.cell(row=r, column=4, value=f'=IFERROR(1/B{r},"")').number_format = "0.000"
+        ws.cell(row=r, column=5, value=f'=IFERROR(1/C{r},"")').number_format = "0.000"
+        ws.cell(row=r, column=6, value=entry.get("source", "kein Faktor hinterlegt"))
+        ws.cell(row=r, column=7, value=entry.get("confidence", "-"))
+        for col in (1, 4, 5, 6, 7):
+            ws.cell(row=r, column=col).font = Font(name=FONT, size=10)
+        if entry.get("confidence") == "assumption":
+            ws.cell(row=r, column=7).fill = NOTE_FILL
+
+    # Wirkung sichtbar machen: was ein pauschaler Faktor aus derselben Menge macht.
+    compare_row = first + len(materials) + 1
+    ws.cell(row=compare_row, column=1, value="Was ein pauschaler Faktor daraus machen wuerde").font = Font(
+        name=FONT, bold=True, size=11, color="1F3864"
+    )
+    compare_row += 1
+    for index, name in enumerate(["Vergleich", "m3 eingebaut", "abgerechnet laut LV", "Deckungsgrad", "Bemerkung"], start=1):
+        ws.cell(row=compare_row, column=index, value=name)
+    _style_header(ws, compare_row, 5)
+
+    billed_all = "SUM(LV_Abgleich!$D$4:$D$400)/2"
+    lines = [
+        (
+            "materialspezifisch, wie hinterlegt",
+            f"=SUM(Daten!$P$2:$P${last})" if last else "",
+            "gerechnet je Material mit eigener Dichte",
+        ),
+        (
+            "pauschal 0,4 m3 je t",
+            f"=SUM(Daten!$N$2:$N${last})*0.4" if last else "",
+            "entspricht 2,5 t je m3 fuer alles",
+        ),
+        (
+            "pauschal 0,5 m3 je t",
+            f"=SUM(Daten!$N$2:$N${last})*0.5" if last else "",
+            "entspricht 2,0 t je m3 fuer alles",
+        ),
+    ]
+    start_compare = compare_row + 1
+    for offset, (label, formula, remark) in enumerate(lines):
+        r = start_compare + offset
+        ws.cell(row=r, column=1, value=label).font = Font(name=FONT, size=10, bold=offset == 0)
+        cell = ws.cell(row=r, column=2, value=formula)
+        cell.number_format = "#,##0"
+        cell.font = Font(name=FONT, size=10, bold=offset == 0)
+        billed = ws.cell(row=r, column=3, value=f"={billed_all}")
+        billed.number_format = "#,##0"
+        billed.font = Font(name=FONT, size=10)
+        ratio = ws.cell(row=r, column=4, value=f"=IFERROR(C{r}/B{r},0)")
+        ratio.number_format = "0.0%"
+        ratio.font = Font(name=FONT, size=10, bold=offset == 0)
+        ws.cell(row=r, column=5, value=remark).font = Font(name=FONT, size=9, color="595959")
+
+    hint = ws.cell(
+        row=start_compare + len(lines) + 1,
+        column=1,
+        value=(
+            "Ein Deckungsgrad ueber 100 Prozent bedeutet, dass mehr abgerechnet als geliefert waere. Beim "
+            "Bettungsmaterial ist das ein Warnsignal fuer einen zu hohen Dichtewert."
+        ),
+    )
+    hint.font = Font(name=FONT, size=9, italic=True)
+    hint.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=hint.row, start_column=1, end_row=hint.row + 1, end_column=5)
+
+    note_row = hint.row + 3
+    note = ws.cell(
+        row=note_row,
+        column=1,
+        value=(
+            "Blau geschriebene Zellen sind Eingaben, schwarze sind gerechnet. Zum Vergleich: ein pauschaler Faktor "
+            "von 0,4 m3 je t entspricht einer Dichte von 2,5 t je m3 und liegt damit ueber jeder Einbaudichte eines "
+            "Gemisches. Wird er gesetzt, faellt das ausgewiesene Volumen um rund ein Viertel."
+        ),
+    )
+    note.font = Font(name=FONT, size=9, italic=True)
+    note.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.merge_cells(start_row=note_row, start_column=1, end_row=note_row + 2, end_column=7)
+    _widths(ws, {"A": 24, "B": 20, "C": 24, "D": 16, "E": 20, "F": 54, "G": 14})
+    return first + len(materials) - 1
+
+
 def _write_overview(
-    wb: Workbook, ctx: Context, last: int, comparison: list[dict], quality: dict, present_groups: list[str]
+    wb: Workbook,
+    ctx: Context,
+    last: int,
+    comparison: list[dict],
+    quality: dict,
+    present_groups: list[str],
+    present_materials: list[str],
 ) -> None:
     ws = wb.create_sheet("Uebersicht")
     period_from, period_to = (d.isoformat() for d in ctx.cfg.period)
@@ -241,9 +384,18 @@ def _write_overview(
             ("Volumen eingebaut, obere Grenze", f"=SUM(Daten!R2:R{last})", "#,##0", "m3 bei Dichte minus 10 Prozent"),
             ("Volumen lose, zum Vergleich", f"=SUM(Daten!O2:O{last})", "#,##0", "m3 bei Anlieferung"),
         ]),
-        ("Wovon", [
+        ("Wovon, in Tonnen", [
             (label, f'=SUMIFS(Daten!N2:N{last},Daten!J2:J{last},"{label}")', "#,##0", "t")
             for label in present_groups
+        ]),
+        ("Wovon, in Kubikmetern eingebaut, je Material mit eigenem Faktor", [
+            (
+                material,
+                f'=SUMIFS(Daten!P2:P{last},Daten!K2:K{last},"{material}")',
+                "#,##0",
+                f'=IFERROR("Dichte "&TEXT(INDEX(Faktoren!$C$4:$C$40,MATCH("{material}",Faktoren!$A$4:$A$40,0)),"0.00")&" t je m3","")',
+            )
+            for material in present_materials
         ]),
         ("Wo", [
             ("Trassenabschnitte", f'=SUMIFS(Daten!N2:N{last},Daten!E2:E{last},"Trassenabschnitte")', "#,##0", "t"),
@@ -277,7 +429,8 @@ def _write_overview(
             cell = ws.cell(row=row, column=2, value=value)
             cell.number_format = fmt
             cell.font = Font(name=FONT, size=10, bold=True)
-            ws.cell(row=row, column=3, value=unit).font = Font(name=FONT, size=9, color="595959")
+            unit_cell = ws.cell(row=row, column=3, value=unit)
+            unit_cell.font = Font(name=FONT, size=9, color="595959")
             for col in range(1, 5):
                 ws.cell(row=row, column=col).border = BORDER
             row += 1
@@ -434,8 +587,8 @@ def _write_material(wb: Workbook, ctx: Context, rows: list[list], last: int) -> 
         ws.cell(row=r, column=3, value=f'=SUMIFS(Daten!N2:N{last},Daten!K2:K{last},$A{r})')
         ws.cell(row=r, column=4, value=f'=SUMIFS(Daten!O2:O{last},Daten!K2:K{last},$A{r})')
         ws.cell(row=r, column=5, value=f'=SUMIFS(Daten!P2:P{last},Daten!K2:K{last},$A{r})')
-        ws.cell(row=r, column=6, value=entry.get("bulk_density_t_per_m3"))
-        ws.cell(row=r, column=7, value=entry.get("installed_density_t_per_m3"))
+        ws.cell(row=r, column=6, value=f'=IFERROR(INDEX(Faktoren!$B$4:$B$40,MATCH($A{r},Faktoren!$A$4:$A$40,0)),"")')
+        ws.cell(row=r, column=7, value=f'=IFERROR(INDEX(Faktoren!$C$4:$C$40,MATCH($A{r},Faktoren!$A$4:$A$40,0)),"")')
         ws.cell(row=r, column=8, value=entry.get("source", "kein Faktor hinterlegt"))
         ws.cell(row=r, column=9, value=entry.get("confidence", "-"))
         for col in range(1, 10):
@@ -450,7 +603,7 @@ def _write_material(wb: Workbook, ctx: Context, rows: list[list], last: int) -> 
     _widths(ws, {"A": 24, "B": 24, "C": 14, "D": 14, "E": 16, "F": 18, "G": 20, "H": 52, "I": 14})
 
 
-def _write_lv(wb: Workbook, comparison: list[dict]) -> None:
+def _write_lv(wb: Workbook, comparison: list[dict], last: int) -> None:
     ws = wb.create_sheet("LV_Abgleich")
     row = _title(
         ws,
@@ -479,27 +632,37 @@ def _write_lv(wb: Workbook, comparison: list[dict]) -> None:
     current = row + 1
     for group in sorted(totals, key=lambda g: -totals[g][0]):
         installed, billed, low, high = totals[group]
-        _lv_line(ws, current, group, "alle Bereiche", installed, billed, low, high, bold=True)
+        _lv_line(ws, current, group, "alle Bereiche", billed, last, bold=True)
         current += 1
         for (g, area) in sorted([k for k in by_area if k[0] == group], key=lambda k: -by_area[k][0]):
             area_values = by_area[(g, area)]
             if area_values[0] == 0 and area_values[1] == 0:
                 continue
-            _lv_line(ws, current, g, area, area_values[0], area_values[1], area_values[2], area_values[3])
+            _lv_line(ws, current, g, area, area_values[1], last)
             current += 1
         current += 1
     _widths(ws, {"A": 26, "B": 18, "C": 22, "D": 18, "E": 14, "F": 16, "G": 22, "H": 22})
 
 
-def _lv_line(ws: Worksheet, row: int, group: str, area: str, installed: float, billed: float, low: float, high: float, bold: bool = False) -> None:
+def _lv_line(ws: Worksheet, row: int, group: str, area: str, billed: float, last: int, bold: bool = False) -> None:
+    """Geliefert kommt aus dem Datenblatt, abgerechnet aus der Leistungsmeldung.
+
+    Die Lieferseite ist bewusst eine Formel: aendert sich eine Dichte im Blatt
+    Faktoren, aendert sich hier der Deckungsgrad mit.
+    """
     ws.cell(row=row, column=1, value=group)
     ws.cell(row=row, column=2, value=area)
-    ws.cell(row=row, column=3, value=round(installed, 2))
+    scope = (
+        f'Daten!$J$2:$J${last},$A{row}'
+        if area == "alle Bereiche"
+        else f'Daten!$J$2:$J${last},$A{row},Daten!$D$2:$D${last},$B{row}'
+    )
+    ws.cell(row=row, column=3, value=f"=SUMIFS(Daten!$P$2:$P${last},{scope})")
     ws.cell(row=row, column=4, value=round(billed, 2))
     ws.cell(row=row, column=5, value=f"=D{row}-C{row}")
     ws.cell(row=row, column=6, value=f"=IFERROR(D{row}/C{row},0)")
-    ws.cell(row=row, column=7, value=f"=D{row}-{round(high, 2)}")
-    ws.cell(row=row, column=8, value=f"=D{row}-{round(low, 2)}")
+    ws.cell(row=row, column=7, value=f"=D{row}-SUMIFS(Daten!$R$2:$R${last},{scope})")
+    ws.cell(row=row, column=8, value=f"=D{row}-SUMIFS(Daten!$Q$2:$Q${last},{scope})")
     for col in range(1, 9):
         cell = ws.cell(row=row, column=col)
         cell.font = Font(name=FONT, size=10, bold=bold)
