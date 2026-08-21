@@ -10,6 +10,7 @@ from . import (
     invoices,
     locations,
     lv_match,
+    management_report,
     master_data,
     model_build,
     reconcile,
@@ -31,4 +32,5 @@ HANDLERS = {
     "invoices": invoices.run,
     "build_model": model_build.run,
     "report": report.run,
+    "management_report": management_report.run,
 }
