@@ -65,3 +65,58 @@ class TagesberichtDaten(BaseModel):
     bemerkungen: Optional[str] = Field(
         default=None, description="Sonstiges, das in kein anderes Feld passt"
     )
+
+
+# --- Mind: Wissensbank-Antwort mit Zitatpflicht ---
+
+
+class Fundstelle(BaseModel):
+    """Der Beleg fuer eine Aussage - ohne ihn gibt es keine Antwort.
+
+    ``datei``, ``seite`` und ``abschnitt`` muessen zu einem der uebergebenen
+    Textausschnitte passen, ``zitat`` muss darin woertlich vorkommen. Beides
+    prueft ``mind.py`` nach dem Modellaufruf noch einmal im Code nach - der
+    Prompt allein ist keine Garantie.
+    """
+
+    datei: str = Field(description="Dateiname exakt wie im Textausschnitt angegeben")
+    seite: Optional[int] = Field(
+        default=None, description="Seitenzahl, falls der Ausschnitt eine nennt"
+    )
+    abschnitt: Optional[str] = Field(
+        default=None, description="Abschnitt/Ueberschrift, falls der Ausschnitt eine nennt"
+    )
+    zitat: str = Field(
+        description=(
+            "Woertliches Zitat aus dem Textausschnitt, das die Aussage belegt - "
+            "Zeichen fuer Zeichen uebernommen, nicht umformuliert"
+        )
+    )
+
+
+class MindAntwort(BaseModel):
+    """Antwort der Wissensbank.
+
+    ``gefunden=False`` ist eine vollwertige, erwuenschte Antwort: Steht die
+    Auskunft nicht in den Unterlagen, wird sie nicht gegeben.
+    """
+
+    gefunden: bool = Field(
+        description=(
+            "true nur, wenn die Antwort vollstaendig aus den Textausschnitten "
+            "belegt ist; sonst false"
+        )
+    )
+    antwort: str = Field(
+        description=(
+            "Sachliche Antwort auf Deutsch, ausschliesslich aus den "
+            "Textausschnitten. Bei gefunden=false leer lassen."
+        )
+    )
+    fundstellen: list[Fundstelle] = Field(
+        default_factory=list,
+        description=(
+            "Belege zu jeder Aussage der Antwort. Bei gefunden=true mindestens "
+            "einer, bei gefunden=false leer."
+        ),
+    )

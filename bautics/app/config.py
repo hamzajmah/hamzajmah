@@ -43,6 +43,10 @@ OPENROUTER_BASE_URL = _env(
 # Modellwahl je Use Case - zentral, damit sie nicht im Feature-Code verstreut ist.
 # Echo: Sprachmemo -> strukturierter Tagesbericht.
 MODEL_ECHO = _env("BAUTICS_MODEL_ECHO", "anthropic/claude-sonnet-5")
+# Mind: Frage an die Wissensbank -> Antwort mit Fundstelle.
+MODEL_MIND = _env("BAUTICS_MODEL_MIND", "anthropic/claude-sonnet-5")
+# Mind: Vektoren fuer die Bedeutungssuche ueber die Projektdokumente.
+MODEL_EMBEDDING = _env("BAUTICS_MODEL_EMBEDDING", "qwen/qwen3-embedding-8b")
 
 # Provider-Routing fuer jeden Modellaufruf:
 # - zdr: nur Provider mit Zero Data Retention
@@ -101,6 +105,40 @@ KNOWLEDGE_DIR = Path(_env("BAUTICS_KNOWLEDGE_DIR", "./data/wissensbank"))
 
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# --- Mind: Wissensbank ueber die Projektdokumente ---
+
+# Zerlegung der Dokumente. Geschnitten wird an natuerlichen Grenzen
+# (Absatz/Abschnitt); die Zeichenzahl ist die Obergrenze, nicht das Raster.
+MIND_CHUNK_MAX_ZEICHEN = _env_int("BAUTICS_MIND_CHUNK_MAX", 1400)
+MIND_CHUNK_MIN_ZEICHEN = _env_int("BAUTICS_MIND_CHUNK_MIN", 80)
+MIND_CHUNK_UEBERLAPPUNG = _env_int("BAUTICS_MIND_CHUNK_UEBERLAPPUNG", 200)
+
+# Embeddings: Groesse eines Aufrufs und Dimension des Vektors.
+# Die Dimension bestimmt auf Postgres die DDL der pgvector-Spalte und muss
+# zum gewaehlten Embedding-Modell passen - sonst nimmt die Datenbank die
+# Vektoren nicht an.
+EMBEDDING_BATCH = _env_int("BAUTICS_EMBEDDING_BATCH", 32)
+EMBEDDING_DIMENSIONEN = _env_int("BAUTICS_EMBEDDING_DIMENSIONEN", 4096)
+
+# Suche: wie viele Kandidaten je Verfahren, wie viele Belege ans Modell.
+MIND_KANDIDATEN = _env_int("BAUTICS_MIND_KANDIDATEN", 20)
+MIND_BELEGE = _env_int("BAUTICS_MIND_BELEGE", 8)
+# Konstante der Reciprocal Rank Fusion - Standardwert aus der Literatur.
+MIND_RRF_K = _env_int("BAUTICS_MIND_RRF_K", 60)
+# Untergrenze der Kosinus-Aehnlichkeit. Liegt kein Treffer darueber und gibt es
+# auch keinen exakten Textfund, fragen wir das Modell gar nicht erst.
+MIND_MIN_AEHNLICHKEIT = _env_float("BAUTICS_MIND_MIN_AEHNLICHKEIT", 0.30)
+# Ein Belegzitat muss lang genug sein, um wirklich etwas zu belegen.
+MIND_MIN_ZITAT_ZEICHEN = _env_int("BAUTICS_MIND_MIN_ZITAT", 20)
+
+# --- Zugriffsschutz der Mind-Schnittstelle ---
+
+# Wenn gesetzt, verlangen die /mind-Routen "Authorization: Bearer <Token>".
+# Ohne Token sind die Routen offen - das ist nur fuer lokale Entwicklung
+# vertretbar; in Produktion ist der Wert Pflicht (Kundendokumente!).
+API_TOKEN = _env("BAUTICS_API_TOKEN")
 
 
 # --- Zuordnung Absender -> Baulos ---

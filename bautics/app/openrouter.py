@@ -162,3 +162,94 @@ def _inhalt_extrahieren(daten: dict[str, Any]) -> str:
     if not isinstance(inhalt, str) or not inhalt.strip():
         raise EngineFehler("Engine-Antwort war leer.")
     return inhalt
+
+
+# --- Embeddings (Bedeutungssuche fuer Mind) ---------------------------------
+
+
+def erzeuge_vektoren(
+    texte: list[str],
+    *,
+    modell: str,
+    client: httpx.Client | None = None,
+) -> list[list[float]]:
+    """Texte in Vektoren uebersetzen - derselbe Zugang, dieselben Regeln.
+
+    Bewusst hier und nicht in einem zweiten Client: Datenschutz-Routing,
+    Retries und Fehlerbehandlung sollen fuer Embeddings genauso gelten wie fuer
+    die Textantworten. Die Reihenfolge der Rueckgabe entspricht der Eingabe -
+    darauf verlaesst sich die Indexierung, deshalb sortieren wir nach dem von
+    der API gelieferten ``index``.
+    """
+    if not texte:
+        return []
+    if any(not text.strip() for text in texte):
+        raise EngineFehler("Leerer Text kann nicht eingebettet werden.")
+
+    eigener_client = client is None
+    aktiver_client = client or httpx.Client(timeout=config.HTTP_TIMEOUT_SEKUNDEN)
+    vektoren: list[list[float]] = []
+    try:
+        for start in range(0, len(texte), max(1, config.EMBEDDING_BATCH)):
+            teil = texte[start : start + max(1, config.EMBEDDING_BATCH)]
+            nutzlast = {
+                "model": modell,
+                "input": teil,
+                # Datenschutz-Routing: siehe config.OPENROUTER_PROVIDER_ROUTING
+                "provider": dict(config.OPENROUTER_PROVIDER_ROUTING),
+            }
+            antwort = anfrage_mit_retry(
+                DIENST,
+                lambda nutzlast=nutzlast: aktiver_client.post(
+                    f"{config.OPENROUTER_BASE_URL}/embeddings",
+                    headers=_kopfzeilen(),
+                    json=nutzlast,
+                ),
+            )
+            vektoren.extend(_vektoren_extrahieren(json_antwort(DIENST, antwort), len(teil)))
+    finally:
+        if eigener_client:
+            aktiver_client.close()
+
+    _pruefe_dimensionen(vektoren)
+    return vektoren
+
+
+def _vektoren_extrahieren(daten: dict[str, Any], erwartet: int) -> list[list[float]]:
+    if "error" in daten:
+        fehlerobjekt = daten.get("error")
+        hinweis = (
+            fehlerobjekt.get("message", "unbekannt")
+            if isinstance(fehlerobjekt, dict)
+            else "unbekannt"
+        )
+        raise UpstreamFehler(DIENST, f"Fehlerantwort: {hinweis}")
+
+    eintraege = daten.get("data")
+    if not isinstance(eintraege, list) or len(eintraege) != erwartet:
+        raise EngineFehler("Engine hat nicht zu jedem Text einen Vektor geliefert.")
+
+    # Nach "index" sortieren: die API darf die Reihenfolge vertauschen.
+    sortiert = sorted(eintraege, key=lambda eintrag: eintrag.get("index", 0))
+    ergebnis: list[list[float]] = []
+    for eintrag in sortiert:
+        vektor = eintrag.get("embedding")
+        if not isinstance(vektor, list) or not vektor:
+            raise EngineFehler("Engine-Antwort enthielt keinen gueltigen Vektor.")
+        ergebnis.append([float(wert) for wert in vektor])
+    return ergebnis
+
+
+def _pruefe_dimensionen(vektoren: list[list[float]]) -> None:
+    """Frueh und laut scheitern statt unbrauchbare Vektoren zu speichern.
+
+    Auf Postgres ist die Spaltenbreite (pgvector) fest; eine abweichende
+    Dimension wuerde spaeter beim Schreiben scheitern - lieber hier mit einer
+    Meldung, die sagt, welche Stellschraube gemeint ist.
+    """
+    laengen = {len(vektor) for vektor in vektoren}
+    if laengen and laengen != {config.EMBEDDING_DIMENSIONEN}:
+        raise EngineFehler(
+            f"Vektorlaenge {sorted(laengen)} passt nicht zu "
+            f"BAUTICS_EMBEDDING_DIMENSIONEN={config.EMBEDDING_DIMENSIONEN}."
+        )
