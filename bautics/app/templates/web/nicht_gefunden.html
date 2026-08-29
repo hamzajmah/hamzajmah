@@ -1,0 +1,9 @@
+{% extends "web/basis.html" %}
+{% block titel %}Nicht gefunden{% endblock %}
+{% block inhalt %}
+  <div class="karte max-w-lesbar p-6">
+    <h1 class="font-serif text-xl font-semibold tracking-[-0.01em]">Nicht gefunden</h1>
+    <p class="mt-2 text-[14px] text-ink-muted">{{ meldung }}</p>
+    <a href="/echo" class="knopf-leise mt-5">Zurück zu den Tagesberichten</a>
+  </div>
+{% endblock %}

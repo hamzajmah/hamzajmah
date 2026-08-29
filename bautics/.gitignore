@@ -4,6 +4,9 @@
 # Laufzeitdaten (DB, Audio, PDFs, Wissensbank-Dokumente)
 data/
 
+# Tailwind-Standalone-CLI: 43 MB Binaerdatei, wird von ui/build.sh geholt
+ui/.bin/
+
 # Python
 __pycache__/
 *.pyc

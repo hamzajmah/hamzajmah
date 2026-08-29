@@ -76,7 +76,7 @@ def formatiere_station(objekt: Leistung | Ereignis) -> str:
     return ""
 
 
-def _formatiere_stunden(wert: float) -> str:
+def formatiere_stunden(wert: float) -> str:
     """2.0 -> '2', 1.5 -> '1,5' (deutsches Dezimalkomma)."""
     if float(wert).is_integer():
         return str(int(wert))
@@ -93,7 +93,7 @@ def _umgebung() -> Environment:
         undefined=StrictUndefined,
     )
     umgebung.filters["station"] = formatiere_station
-    umgebung.filters["stunden"] = _formatiere_stunden
+    umgebung.filters["stunden"] = formatiere_stunden
     umgebung.filters["ereignisart"] = lambda art: EREIGNIS_BEZEICHNUNGEN.get(art, str(art))
     return umgebung
 

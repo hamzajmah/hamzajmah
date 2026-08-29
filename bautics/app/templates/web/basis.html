@@ -1,0 +1,118 @@
+{# Gemeinsamer Seitenrahmen: dunkle Agentenleiste links, Kopfzeile mit
+   Projekt/Baulos, Inhaltsflaeche rechts. Farben und Schriften kommen aus dem
+   Tailwind-Theme (ui/tailwind.config.js), das DESIGN.md abbildet. #}
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titel %}Bautics{% endblock %} · Bautics</title>
+  {# Ein einziges, selbst ausgeliefertes Stylesheet - kein CDN, kein Google Fonts. #}
+  <link rel="stylesheet" href="/static/css/bautics.css?v={{ css_kennung }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolygon fill='%23D14E0A' points='0,0 4,0 7.2,13.6 12.8,13.6 16,0 20,0 20,20 0,20'/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="min-h-screen lg:grid lg:h-screen lg:grid-cols-[15rem_1fr] lg:grid-rows-[3.5rem_1fr] lg:overflow-hidden">
+
+  {# Schalter fuer die Leiste auf schmalen Bildschirmen - reines CSS,
+     damit die Bedienung auch ohne JavaScript funktioniert. #}
+  <input type="checkbox" id="nav-schalter" class="peer sr-only">
+
+  <header class="flex h-14 items-center gap-3 border-b border-hair bg-card px-4 lg:col-span-2">
+    <label for="nav-schalter"
+           class="-ml-1 flex h-9 w-9 flex-none cursor-pointer items-center justify-center rounded-lg border border-hair text-ink-muted hover:border-ink hover:text-ink lg:hidden"
+           title="Agenten ein-/ausblenden">
+      <span class="sr-only">Agentenleiste ein- oder ausblenden</span>
+      <svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round"/>
+      </svg>
+    </label>
+
+    <a href="/echo" class="flex flex-none items-center gap-2.5">
+      {# Grabenprofil - das Logo aus dem Demo-Dashboard. #}
+      <svg viewBox="0 0 20 20" class="h-5 w-5 text-accent" fill="currentColor" aria-hidden="true">
+        <polygon points="0,0 4,0 7.2,13.6 12.8,13.6 16,0 20,0 20,20 0,20"/>
+      </svg>
+      <span class="font-serif text-[19px] font-semibold tracking-[-0.01em]">Bautics</span>
+    </a>
+
+    {# Projekt/Baulos: die Auswahl kommt aus den vorhandenen Daten, nicht aus
+       einer festen Liste - angeboten wird nur, wozu wirklich etwas vorliegt. #}
+    {% if baulose %}
+      <form method="get" class="ml-1 hidden items-center gap-2 rounded-lg border border-hair bg-paper px-2.5 py-1.5 sm:flex">
+        <label for="baulos-wahl" class="etikett">Baulos</label>
+        <select id="baulos-wahl" name="baulos"
+                class="max-w-[16rem] truncate bg-transparent text-[13.5px] font-medium text-ink focus:outline-none">
+          <option value="" {% if not baulos %}selected{% endif %}>Alle Baulose</option>
+          {% for eintrag in baulose %}
+            <option value="{{ eintrag }}" {% if eintrag == baulos %}selected{% endif %}>{{ eintrag }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="etikett rounded px-1.5 py-0.5 underline-offset-4 hover:text-ink hover:underline">Wechseln</button>
+      </form>
+    {% endif %}
+
+    <span class="flex-1"></span>
+
+    {% if schutz_aktiv %}
+      <form method="post" action="/abmelden">
+        <button type="submit" class="knopf-leise !px-3 !py-1.5">Abmelden</button>
+      </form>
+    {% endif %}
+  </header>
+
+  <nav aria-label="Agenten der Bautics Suite"
+       class="fixed inset-y-0 left-0 z-40 w-60 -translate-x-full overflow-y-auto bg-night px-3 py-4 text-night-ink transition-transform duration-200 peer-checked:translate-x-0 lg:static lg:z-auto lg:translate-x-0 lg:py-4">
+    <p class="etikett px-2.5 pb-2.5 !text-night-muted">Bautics Suite</p>
+    <ul class="space-y-0.5">
+      {% for agent in agenten %}
+        <li>
+          {% if agent.pfad %}
+            <a href="{{ agent.pfad }}"
+               {% if agent.name == aktiv %}aria-current="page"{% endif %}
+               class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium hover:bg-night-raised {% if agent.name == aktiv %}bg-night-raised text-white{% endif %}">
+              <span class="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-md border font-mono text-[10.5px] {% if agent.name == aktiv %}border-accent bg-accent text-white{% else %}border-night-hair text-night-muted{% endif %}">{{ agent.kuerzel }}</span>
+              <span>{{ agent.name }}<span class="block text-[11px] font-normal leading-tight text-night-muted">{{ agent.aufgabe }}</span></span>
+            </a>
+          {% else %}
+            {# Noch nicht gebaut: sichtbar, aber nicht anklickbar - die Leiste
+               erzaehlt die Produktvision, taeuscht aber nichts vor. #}
+            <span aria-disabled="true"
+                  class="flex cursor-default items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-night-muted">
+              <span class="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-md border border-night-hair font-mono text-[10.5px] text-night-muted opacity-70">{{ agent.kuerzel }}</span>
+              <span class="min-w-0 flex-1">{{ agent.name }}<span class="block text-[11px] font-normal leading-tight text-night-muted opacity-80">{{ agent.aufgabe }}</span></span>
+              <span class="flex-none rounded border border-night-hair px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-night-muted">bald</span>
+            </span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-4 border-t border-night-hair px-2.5 pt-3 text-[11px] leading-snug text-night-muted">
+      Echo und Mind sind in Betrieb. Die übrigen Agenten der Suite sind noch nicht verfügbar.
+    </p>
+  </nav>
+
+  {# Abdunklung hinter der ausgeklappten Leiste; Klick schliesst sie wieder. #}
+  <label for="nav-schalter" class="fixed inset-0 z-30 hidden bg-night/50 peer-checked:max-lg:block">
+    <span class="sr-only">Agentenleiste schließen</span>
+  </label>
+
+  <main class="px-5 pb-16 pt-6 lg:overflow-y-auto lg:px-8">
+    {# Auf breiten Bildschirmen begrenzt, damit Zeilen lesbar bleiben. #}
+    <div class="mx-auto w-full max-w-[76rem]">
+    {% if not schutz_aktiv %}
+      <p class="mb-5 flex items-start gap-2.5 rounded-lg border border-crit bg-crit-soft px-4 py-3 text-[13.5px] text-crit">
+        <span aria-hidden="true" class="font-mono">▲</span>
+        <span><strong class="font-semibold">Ungeschützter Betrieb.</strong>
+        Es ist kein Zugangstoken (<span class="kennung">BAUTICS_API_TOKEN</span>) konfiguriert –
+        jeder mit Zugriff auf diesen Server sieht die Projektunterlagen. Nur für die lokale
+        Entwicklung zulässig.</span>
+      </p>
+    {% endif %}
+    {% block inhalt %}{% endblock %}
+    </div>
+  </main>
+</div>
+{% block skripte %}{% endblock %}
+</body>
+</html>

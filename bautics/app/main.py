@@ -10,6 +10,7 @@ import logging
 from contextlib import asynccontextmanager
 from hmac import compare_digest
 from typing import AsyncIterator
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 from fastapi import (
@@ -21,6 +22,8 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import config, db, mind
@@ -34,6 +37,9 @@ from .http_client import UpstreamFehler
 from .openrouter import EngineFehler
 from .schemas import Fundstelle
 from .twilio_api import signatur_gueltig
+from .web import STATISCH_VERZEICHNIS
+from .web import router as web_router
+from .web.sitzung import NichtAngemeldet
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,27 @@ app = FastAPI(
     version="0.2.0",
     lifespan=lebenszyklus,
 )
+
+# Stylesheet und Schriften liefern wir selbst aus - im Produktivpfad wird
+# kein fremder CDN aufgerufen (schlechtes Netz auf der Baustelle, und bei
+# Konzernkunden ein unnoetiger Datenschutz-Diskussionspunkt).
+app.mount("/static", StaticFiles(directory=str(STATISCH_VERZEICHNIS)), name="static")
+
+
+@app.exception_handler(NichtAngemeldet)
+def _zur_anmeldung(request: Request, ausnahme: NichtAngemeldet) -> RedirectResponse:
+    """Geschuetzte Seite ohne Sitzung: zurueck zum Anmeldeformular."""
+    ziel = request.url.path
+    if request.url.query:
+        ziel = f"{ziel}?{request.url.query}"
+    return RedirectResponse(
+        f"/anmelden?weiter={quote(ziel, safe='')}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+# Die Oberflaeche (Echo, Mind). Sie ruft dieselbe Fachlogik auf wie die
+# JSON-Routen unten und schuetzt sich mit einem eigenen Sitzungs-Cookie.
+app.include_router(web_router)
 
 
 def pruefe_zugang(request: Request) -> None:

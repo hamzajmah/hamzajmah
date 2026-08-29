@@ -1,0 +1,135 @@
+{% extends "web/basis.html" %}
+{% block titel %}Mind – Wissensbank{% endblock %}
+{% block inhalt %}
+  <a href="/mind" class="etikett inline-flex items-center gap-1.5 hover:text-ink">
+    <span aria-hidden="true">←</span> Zurück zu den Fragen
+  </a>
+
+  <div class="mb-5 mt-2">
+    <h1 class="font-serif text-[26px] font-semibold tracking-[-0.01em]">Wissensbank</h1>
+    <p class="max-w-lesbar text-[14px] text-ink-muted">
+      Mind antwortet nur aus Unterlagen, die eingelesen wurden. Der Indexlauf prüft den
+      Wissensbank-Ordner, liest neue und geänderte Dateien ein und zerlegt sie in
+      zitierfähige Abschnitte. Unveränderte Dateien bleiben unangetastet.
+    </p>
+  </div>
+
+  <div class="grid max-w-4xl gap-5 md:grid-cols-2">
+    <section class="karte p-5" aria-labelledby="ueberschrift-bestand">
+      <h2 id="ueberschrift-bestand" class="etikett">Bestand</h2>
+      <dl class="mt-3 divide-y divide-hair text-[13.5px]">
+        <div class="flex items-baseline justify-between py-2">
+          <dt>Eingelesene Dokumente</dt>
+          <dd class="kennung text-[18px] font-medium">{{ status.dokumente }}</dd>
+        </div>
+        <div class="flex items-baseline justify-between py-2">
+          <dt>Zitierfähige Abschnitte</dt>
+          <dd class="kennung text-[18px] font-medium">{{ status.chunks }}</dd>
+        </div>
+        <div class="flex items-baseline justify-between py-2">
+          <dt>Dokumente mit Fehler</dt>
+          <dd>
+            {% if status.dokumente_mit_fehler %}
+              <span class="plakette bg-crit-soft text-crit">
+                <span aria-hidden="true">✕</span>{{ status.dokumente_mit_fehler }}
+              </span>
+            {% else %}
+              <span class="plakette bg-ok-soft text-ok"><span aria-hidden="true">✓</span>keine</span>
+            {% endif %}
+          </dd>
+        </div>
+        <div class="flex items-baseline justify-between gap-4 py-2">
+          <dt>Zuletzt eingelesen</dt>
+          <dd class="kennung text-right text-[13px] text-ink-muted">{{ status.zuletzt_indexiert | iso_zeitpunkt }}</dd>
+        </div>
+      </dl>
+
+      <p class="etikett mt-4">Baulose im Bestand</p>
+      {% if status.projekte %}
+        <ul class="mt-1.5 flex flex-wrap gap-1.5">
+          {% for projekt in status.projekte %}
+            <li class="rounded border border-hair bg-paper px-2 py-1 text-[13px]">{{ projekt }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="mt-1.5 text-[13.5px] text-ink-muted">
+          Noch keine Unterlagen eingelesen. Legen Sie je Baulos einen Unterordner im
+          Wissensbank-Verzeichnis ab und stoßen Sie den Indexlauf an.
+        </p>
+      {% endif %}
+    </section>
+
+    <section class="karte p-5" aria-labelledby="ueberschrift-indexlauf">
+      <h2 id="ueberschrift-indexlauf" class="etikett">Indexlauf</h2>
+
+      {% if lauf.laeuft %}
+        <p class="mt-3 flex items-center gap-3 text-[13.5px]">
+          <span aria-hidden="true" class="h-4 w-4 flex-none animate-spin rounded-full motion-reduce:animate-none border-2 border-hair-strong border-t-accent"></span>
+          <span>Der Indexlauf läuft seit <span class="kennung">{{ lauf.gestartet_am | zeitpunkt }}</span>.
+          Diese Seite aktualisiert sich von selbst.</span>
+        </p>
+      {% elif lauf.abbruch %}
+        <p role="alert" class="mt-3 flex items-start gap-2.5 rounded-lg border border-crit bg-crit-soft px-3 py-2.5 text-[13.5px] text-crit">
+          <span aria-hidden="true" class="font-mono">✕</span>
+          <span>Der letzte Indexlauf ist abgebrochen. Die Ursache steht im Serverprotokoll.
+          Der bisherige Bestand bleibt unverändert nutzbar.</span>
+        </p>
+      {% elif lauf.bericht %}
+        <p class="mt-3 text-[13.5px] text-ink-muted">
+          Letzter Lauf beendet: <span class="kennung">{{ lauf.beendet_am | zeitpunkt }}</span>
+        </p>
+        <dl class="mt-2 divide-y divide-hair text-[13.5px]">
+          <div class="flex items-baseline justify-between py-2">
+            <dt>Dateien geprüft</dt><dd class="kennung">{{ lauf.bericht.geprueft }}</dd>
+          </div>
+          <div class="flex items-baseline justify-between py-2">
+            <dt>Neu eingelesen</dt><dd class="kennung">{{ lauf.bericht.neu }}</dd>
+          </div>
+          <div class="flex items-baseline justify-between py-2">
+            <dt>Aktualisiert</dt><dd class="kennung">{{ lauf.bericht.aktualisiert }}</dd>
+          </div>
+          <div class="flex items-baseline justify-between py-2">
+            <dt>Unverändert übersprungen</dt><dd class="kennung">{{ lauf.bericht.unveraendert }}</dd>
+          </div>
+          <div class="flex items-baseline justify-between py-2">
+            <dt>Abschnitte geschrieben</dt><dd class="kennung">{{ lauf.bericht.chunks }}</dd>
+          </div>
+        </dl>
+        {% if lauf.bericht.fehler %}
+          <div class="mt-3 rounded-lg border border-warn bg-warn-soft px-3 py-2.5">
+            <p class="flex items-center gap-2 text-[13px] font-medium text-warn">
+              <span aria-hidden="true" class="font-mono">!</span>
+              {{ lauf.bericht.fehler | length }} Datei(en) konnten nicht eingelesen werden
+            </p>
+            <ul class="mt-1.5 space-y-1 pl-6 text-[12.5px] text-warn">
+              {% for eintrag in lauf.bericht.fehler %}
+                <li class="break-words">{{ eintrag }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="mt-3 max-w-lesbar text-[13.5px] leading-relaxed text-ink-muted">
+          In dieser Sitzung wurde noch kein Indexlauf angestoßen. Die Zahlen links stammen
+          aus der Datenbank und gelten unabhängig davon.
+        </p>
+      {% endif %}
+
+      <form method="post" action="/mind/wissensbank" class="mt-4">
+        <button type="submit" class="knopf" {% if lauf.laeuft %}disabled{% endif %}>
+          {% if lauf.laeuft %}Indexlauf läuft …{% else %}Indexlauf starten{% endif %}
+        </button>
+      </form>
+      <p class="mt-2 text-[12px] leading-relaxed text-ink-muted">
+        Der Lauf arbeitet im Hintergrund weiter, auch wenn diese Seite geschlossen wird.
+      </p>
+    </section>
+  </div>
+{% endblock %}
+
+{% block skripte %}
+  {% if lauf.laeuft %}
+    {# Selbstaktualisierung nur, solange wirklich etwas laeuft. #}
+    <meta http-equiv="refresh" content="5">
+  {% endif %}
+{% endblock %}

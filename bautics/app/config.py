@@ -140,6 +140,15 @@ MIND_MIN_ZITAT_ZEICHEN = _env_int("BAUTICS_MIND_MIN_ZITAT", 20)
 # vertretbar; in Produktion ist der Wert Pflicht (Kundendokumente!).
 API_TOKEN = _env("BAUTICS_API_TOKEN")
 
+# --- Oberflaeche (serverseitig gerenderte Seiten) ---
+
+# Laufzeit der Sitzung nach der Token-Eingabe. Ein Arbeitstag auf der
+# Baustelle - danach muss das Token erneut eingegeben werden.
+UI_SITZUNG_STUNDEN = _env_int("BAUTICS_UI_SITZUNG_STUNDEN", 12)
+# Bremse gegen das Durchprobieren des Tokens am Anmeldeformular.
+UI_ANMELDE_VERSUCHE = _env_int("BAUTICS_UI_ANMELDE_VERSUCHE", 10)
+UI_ANMELDE_SPERRE_SEKUNDEN = _env_int("BAUTICS_UI_ANMELDE_SPERRE", 300)
+
 
 # --- Zuordnung Absender -> Baulos ---
 

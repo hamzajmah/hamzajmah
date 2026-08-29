@@ -1,0 +1,194 @@
+{% extends "web/basis.html" %}
+{% block titel %}Tagesbericht {{ nummer }}{% endblock %}
+{% block inhalt %}
+  <a href="/echo{% if baulos %}?baulos={{ baulos | urlencode }}{% endif %}"
+     class="etikett inline-flex items-center gap-1.5 hover:text-ink">
+    <span aria-hidden="true">←</span> Alle Tagesberichte
+  </a>
+
+  <div class="mb-5 mt-2 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="font-serif text-[26px] font-semibold tracking-[-0.01em]">
+        Tagesbericht <span class="kennung text-[22px]">{{ nummer }}</span>
+      </h1>
+      <p class="text-[14px] text-ink-muted">
+        {{ bericht.projekt }} · <span class="kennung">{{ bericht.datum | kurzdatum }}</span>
+      </p>
+    </div>
+    <span class="plakette {{ zustand.plakette }} !text-[11px] !px-2.5 !py-1">
+      <span aria-hidden="true">{{ zustand.symbol }}</span>{{ zustand.text }}
+    </span>
+  </div>
+
+  {% if bericht.status == 'fehler' %}
+    <p role="alert" class="mb-5 flex max-w-lesbar items-start gap-2.5 rounded-lg border border-crit bg-crit-soft px-4 py-3 text-[13.5px] text-crit">
+      <span aria-hidden="true" class="font-mono">✕</span>
+      <span><strong class="font-semibold">Dieser Bericht konnte nicht erstellt werden.</strong>
+      Die Sprachnachricht ist eingegangen, die Auswertung ist aber abgebrochen. Bitte die
+      Nachricht erneut senden. Die technische Ursache steht im Serverprotokoll.</span>
+    </p>
+  {% elif bericht.status == 'empfangen' %}
+    <p class="mb-5 flex max-w-lesbar items-start gap-2.5 rounded-lg border border-warn bg-warn-soft px-4 py-3 text-[13.5px] text-warn">
+      <span aria-hidden="true" class="font-mono">◷</span>
+      <span>Die Sprachnachricht wird gerade ausgewertet. Der Bericht erscheint hier, sobald
+      er fertig ist.</span>
+    </p>
+  {% endif %}
+
+  {# grid-cols-1 statt der impliziten Spalte: Sonst wachsen die Spalten auf die
+   Mindestbreite des Berichtstextes, und auf dem Handy laeuft die Seite ueber. #}
+  <div class="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)]">
+
+    {# --- Der fertige Berichtstext: das Dokument, das freigegeben wird. --- #}
+    <section class="karte min-w-0 overflow-hidden" aria-labelledby="ueberschrift-berichtstext">
+      <h2 id="ueberschrift-berichtstext" class="etikett border-b border-hair px-5 py-3">Berichtstext</h2>
+      {% if bericht.berichtstext %}
+        <div class="overflow-x-auto px-5 py-4">
+          <pre class="kennung whitespace-pre-wrap break-words text-[12.5px] leading-[1.65] text-ink">{{ bericht.berichtstext }}</pre>
+        </div>
+      {% else %}
+        <p class="px-5 py-4 text-[13.5px] text-ink-muted">{{ leer }}</p>
+      {% endif %}
+    </section>
+
+    {# --- Die strukturierten Daten. --- #}
+    <div class="min-w-0 space-y-5">
+      {% if daten %}
+        <section class="karte" aria-labelledby="ueberschrift-personal">
+          <h2 id="ueberschrift-personal" class="etikett border-b border-hair px-5 py-3">Personal &amp; Geräte</h2>
+          <div class="grid gap-x-6 gap-y-4 px-5 py-4 sm:grid-cols-2">
+            <div>
+              <p class="text-[12.5px] text-ink-muted">Gewerbliche Mitarbeiter</p>
+              <p class="kennung mt-0.5 text-[20px] {% if daten.personal_gewerblich is none %}text-[13.5px] text-ink-muted{% endif %}">
+                {{ daten.personal_gewerblich if daten.personal_gewerblich is not none else leer }}
+              </p>
+            </div>
+            <div>
+              <p class="text-[12.5px] text-ink-muted">Angestellte / Bauleitung</p>
+              <p class="kennung mt-0.5 text-[20px] {% if daten.personal_angestellt is none %}text-[13.5px] text-ink-muted{% endif %}">
+                {{ daten.personal_angestellt if daten.personal_angestellt is not none else leer }}
+              </p>
+            </div>
+            <div class="sm:col-span-2">
+              <p class="text-[12.5px] text-ink-muted">Großgeräte</p>
+              {% if daten.geraete %}
+                <ul class="mt-1 flex flex-wrap gap-1.5">
+                  {% for geraet in daten.geraete %}
+                    <li class="rounded border border-hair bg-paper px-2 py-1 text-[13px]">{{ geraet }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="mt-0.5 text-[13.5px] text-ink-muted">{{ leer }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+
+        <section class="karte overflow-hidden" aria-labelledby="ueberschrift-leistungen">
+          <h2 id="ueberschrift-leistungen" class="etikett border-b border-hair px-5 py-3">
+            Ausgeführte Arbeiten<span class="ml-1 normal-case tracking-normal">({{ daten.leistungen | length }})</span>
+          </h2>
+          {% if daten.leistungen %}
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[24rem] border-collapse text-left text-[13.5px]">
+                <thead>
+                  <tr class="border-b border-hair">
+                    <th scope="col" class="etikett w-10 px-5 py-2 font-normal">Nr.</th>
+                    <th scope="col" class="etikett px-2 py-2 font-normal">Leistung</th>
+                    <th scope="col" class="etikett px-5 py-2 font-normal">Stationierung</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for leistung in daten.leistungen %}
+                    <tr class="border-b border-hair last:border-b-0 align-top">
+                      <td class="kennung px-5 py-2.5 text-ink-muted">{{ '%02d' % loop.index }}</td>
+                      <td class="px-2 py-2.5">{{ leistung.beschreibung }}</td>
+                      <td class="kennung whitespace-nowrap px-5 py-2.5 {% if leistung | station %}text-ink{% else %}text-ink-muted{% endif %}">
+                        {{ (leistung | station) or leer }}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="px-5 py-4 text-[13.5px] text-ink-muted">{{ leer }}</p>
+          {% endif %}
+        </section>
+
+        <section class="karte" aria-labelledby="ueberschrift-ereignisse">
+          <h2 id="ueberschrift-ereignisse" class="etikett border-b border-hair px-5 py-3">
+            Besondere Vorkommnisse<span class="ml-1 normal-case tracking-normal">({{ daten.ereignisse | length }})</span>
+          </h2>
+          {% if daten.ereignisse %}
+            <ul class="space-y-2.5 px-5 py-4">
+              {% for ereignis in daten.ereignisse %}
+                {% set zust = ereignis_zustand(ereignis.art) %}
+                {# Art immer als Text und Symbol, nie allein ueber die Farbe. #}
+                <li class="rounded-r-lg border-l-[3px] {{ zust.kante }} bg-paper py-2.5 pl-3.5 pr-3">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="plakette {{ zust.plakette }}">
+                      <span aria-hidden="true">{{ zust.symbol }}</span>{{ zust.text }}
+                    </span>
+                    {% if ereignis.dauer_stunden is not none %}
+                      <span class="kennung text-[12px] text-ink-muted">
+                        {{ ereignis.dauer_stunden | stunden }} h
+                      </span>
+                    {% endif %}
+                    {% if ereignis | station %}
+                      <span class="kennung text-[12px] text-ink-muted">{{ ereignis | station }}</span>
+                    {% endif %}
+                  </div>
+                  <p class="mt-1.5 text-[13.5px] leading-relaxed">{{ ereignis.beschreibung }}</p>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="px-5 py-4 text-[13.5px] text-ink-muted">Keine besonderen Vorkommnisse gemeldet.</p>
+          {% endif %}
+        </section>
+
+        <section class="karte" aria-labelledby="ueberschrift-sonstiges">
+          <h2 id="ueberschrift-sonstiges" class="etikett border-b border-hair px-5 py-3">Vorschau &amp; Bemerkungen</h2>
+          <dl class="divide-y divide-hair px-5 text-[13.5px]">
+            <div class="py-3">
+              <dt class="text-[12.5px] text-ink-muted">Vorschau</dt>
+              <dd class="mt-0.5 leading-relaxed {% if not daten.vorschau %}text-ink-muted{% endif %}">{{ daten.vorschau or leer }}</dd>
+            </div>
+            <div class="py-3">
+              <dt class="text-[12.5px] text-ink-muted">Bemerkungen</dt>
+              <dd class="mt-0.5 leading-relaxed {% if not daten.bemerkungen %}text-ink-muted{% endif %}">{{ daten.bemerkungen or leer }}</dd>
+            </div>
+          </dl>
+        </section>
+      {% else %}
+        <section class="karte p-5">
+          <h2 class="etikett">Strukturierte Daten</h2>
+          <p class="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+            Zu diesem Bericht liegen keine auswertbaren Einzelangaben vor.
+          </p>
+        </section>
+      {% endif %}
+    </div>
+  </div>
+
+  {# --- Rohtranskript: eingeklappt, aber jederzeit nachprüfbar. --- #}
+  <details class="karte mt-5 max-w-lesbar">
+    <summary class="cursor-pointer list-none px-5 py-3 text-[13.5px] font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+      <span class="etikett">Rohtranskript der Sprachnachricht</span>
+      <span class="ml-2 text-[12px] font-normal text-ink-muted">anzeigen / verbergen</span>
+    </summary>
+    <div class="border-t border-hair px-5 py-4">
+      {% if bericht.rohtranskript %}
+        <p class="whitespace-pre-wrap text-[13.5px] leading-relaxed">{{ bericht.rohtranskript }}</p>
+      {% else %}
+        <p class="text-[13.5px] text-ink-muted">{{ leer }}</p>
+      {% endif %}
+    </div>
+  </details>
+
+  <p class="mt-4 text-[12px] text-ink-muted">
+    Zuletzt geändert: <span class="kennung">{{ bericht.aktualisiert_am | zeitpunkt }}</span> ·
+    Angaben ohne Nennung bleiben leer ({{ leer }}) – nichts wird ergänzt.
+  </p>
+{% endblock %}

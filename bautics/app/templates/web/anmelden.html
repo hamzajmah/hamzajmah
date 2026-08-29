@@ -1,0 +1,51 @@
+{# Anmeldung. Steht bewusst ausserhalb des Seitenrahmens: Wer nicht angemeldet
+   ist, sieht auch keine Agentenleiste und keine Projektnamen. #}
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anmelden · Bautics</title>
+  <link rel="stylesheet" href="/static/css/bautics.css?v={{ css_kennung }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpolygon fill='%23D14E0A' points='0,0 4,0 7.2,13.6 12.8,13.6 16,0 20,0 20,20 0,20'/%3E%3C/svg%3E">
+</head>
+<body class="grid min-h-screen place-items-center px-5 py-10">
+  <main class="w-full max-w-[26rem]">
+    <div class="mb-6 flex items-center gap-3">
+      <svg viewBox="0 0 20 20" class="h-7 w-7 text-accent" fill="currentColor" aria-hidden="true">
+        <polygon points="0,0 4,0 7.2,13.6 12.8,13.6 16,0 20,0 20,20 0,20"/>
+      </svg>
+      <span class="font-serif text-2xl font-semibold tracking-[-0.01em]">Bautics</span>
+    </div>
+
+    <div class="karte p-6">
+      <h1 class="font-serif text-xl font-semibold tracking-[-0.01em]">Zugang zur Bautics Suite</h1>
+      <p class="mt-2 text-[13.5px] leading-relaxed text-ink-muted">
+        Bitte das Zugangstoken dieser Installation eingeben. Es gilt für alle Agenten
+        und wird für die Dauer eines Arbeitstages als Sitzung gespeichert.
+      </p>
+
+      {% if fehler %}
+        <p role="alert" class="mt-4 flex items-start gap-2 rounded-lg border border-crit bg-crit-soft px-3 py-2.5 text-[13.5px] text-crit">
+          <span aria-hidden="true" class="font-mono">✕</span><span>{{ fehler }}</span>
+        </p>
+      {% endif %}
+
+      <form method="post" action="/anmelden" class="mt-5 space-y-3">
+        <input type="hidden" name="weiter" value="{{ weiter }}">
+        <div>
+          <label for="token" class="etikett mb-1.5 block">Zugangstoken</label>
+          <input id="token" name="token" type="password" required autofocus autocomplete="current-password"
+                 class="feld font-mono" placeholder="••••••••••••">
+        </div>
+        <button type="submit" class="knopf w-full">Anmelden</button>
+      </form>
+    </div>
+
+    <p class="mt-4 px-1 text-[12px] leading-relaxed text-ink-muted">
+      Die Unterlagen hinter dieser Anmeldung sind vertraulich. Das Token wird nicht
+      protokolliert und nicht im Browser gespeichert.
+    </p>
+  </main>
+</body>
+</html>

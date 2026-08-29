@@ -1,0 +1,74 @@
+/* Bautics - Quelldatei fuer das Stylesheet.
+ * Uebersetzt wird sie mit ui/build.sh zu app/static/css/bautics.css.
+ * Diese Datei nie direkt ausliefern. */
+
+/* Schriften liegen lokal im Repo (ui/fonts_holen.py), kein Google-Fonts-Aufruf. */
+@import "../app/static/fonts/schriften.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* Auf der Baustelle wird das Tablet quer wie hoch gehalten. */
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  ::selection {
+    @apply bg-accent text-white;
+  }
+  /* Ohne !important gewinnt eine display-Utility (z.B. `flex`) gegen die
+     Browserregel fuer [hidden] - der Ladehinweis bliebe dauerhaft sichtbar. */
+  [hidden] {
+    display: none !important;
+  }
+  /* Tastaturbedienung muss sichtbar sein - Handschuhe, Sonne, kleiner Bildschirm. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-paper;
+  }
+  .bg-night :focus-visible,
+  .bg-night-raised :focus-visible {
+    @apply ring-offset-night;
+  }
+}
+
+@layer components {
+  /* Kennungen: Stationierung 12+400, Positionsnummer 03.02.040, Bericht-Nr.
+     Immer tabellarische Ziffern, damit sie in Spalten fluchten (DESIGN.md). */
+  .kennung {
+    @apply font-mono tabular-nums;
+  }
+  /* Kleine Grossbuchstaben-Beschriftung ueber Bloecken. */
+  .etikett {
+    @apply font-mono text-[11px] uppercase tracking-[0.1em] text-ink-muted;
+  }
+  .karte {
+    @apply rounded-xl border border-hair bg-card;
+  }
+  /* Zustandsplakette - Farbe allein reicht nie, es steht immer Text daneben. */
+  .plakette {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5
+           font-mono text-[10px] uppercase tracking-[0.06em];
+  }
+  .knopf {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border-[1.5px]
+           border-ink bg-ink px-4 py-2 text-[13.5px] font-semibold text-paper
+           transition-colors hover:border-accent hover:bg-accent hover:text-white
+           disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-ink
+           disabled:hover:bg-ink;
+  }
+  .knopf-leise {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border-[1.5px]
+           border-hair-strong bg-transparent px-4 py-2 text-[13.5px] font-semibold
+           text-ink transition-colors hover:border-ink;
+  }
+  .feld {
+    @apply w-full rounded-lg border border-hair-strong bg-card px-3 py-2 text-[15px]
+           text-ink placeholder:text-ink-muted focus:border-accent;
+  }
+}

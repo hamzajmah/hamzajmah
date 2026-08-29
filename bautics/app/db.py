@@ -310,3 +310,40 @@ def loesche_chunks(sitzung_: Session, dokument_id: int) -> int:
         delete(WissensChunk).where(WissensChunk.dokument_id == dokument_id)
     )
     return ergebnis.rowcount or 0
+
+
+# --- Lesezugriffe fuer die Oberflaeche --------------------------------------
+
+
+def liste_tagesberichte(
+    sitzung_: Session, *, projekt: str | None = None, limit: int = 100
+) -> list[Tagesbericht]:
+    """Berichte, neueste zuerst - optional auf ein Baulos eingegrenzt.
+
+    Sortiert nach Berichtsdatum, nicht nach Eingang: Wird eine Sprachnachricht
+    nachgereicht, gehoert der Bericht trotzdem an sein Datum.
+    """
+    abfrage = select(Tagesbericht)
+    if projekt:
+        abfrage = abfrage.where(Tagesbericht.projekt == projekt)
+    abfrage = abfrage.order_by(
+        Tagesbericht.datum.desc(),
+        Tagesbericht.berichtsnummer.desc().nulls_last(),
+        Tagesbericht.id.desc(),
+    ).limit(limit)
+    return list(sitzung_.scalars(abfrage).all())
+
+
+def finde_bericht(sitzung_: Session, bericht_id: int) -> Tagesbericht | None:
+    return sitzung_.get(Tagesbericht, bericht_id)
+
+
+def bekannte_baulose(sitzung_: Session) -> list[str]:
+    """Alle Baulose, zu denen es Berichte oder indexierte Unterlagen gibt.
+
+    Bewusst aus den Daten und nicht aus einer Liste in der Konfiguration: Die
+    Oberflaeche soll nur Baulose anbieten, zu denen wirklich etwas vorliegt.
+    """
+    aus_berichten = sitzung_.scalars(select(Tagesbericht.projekt).distinct()).all()
+    aus_unterlagen = sitzung_.scalars(select(WissensDokument.projekt).distinct()).all()
+    return sorted({wert for wert in (*aus_berichten, *aus_unterlagen) if wert})
