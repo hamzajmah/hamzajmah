@@ -1,0 +1,56 @@
+BAUTAGESBERICHT
+==============================================================
+Baulos:        {{ meta.projekt }}
+Datum:         {{ datum_lang }}
+Bericht-Nr.:   {{ berichtsnummer }}
+Bauleiter:     {{ meta.bauleiter or leer }}
+Wetter:        {{ meta.wetter or wetter_platzhalter }}
+
+1. PERSONAL
+   Gewerbliche Mitarbeiter: {{ daten.personal_gewerblich if daten.personal_gewerblich is not none else leer }}
+   Angestellte/Bauleitung:  {{ daten.personal_angestellt if daten.personal_angestellt is not none else leer }}
+
+2. GERÄTE
+{% if daten.geraete %}
+{% for geraet in daten.geraete %}
+   - {{ geraet }}
+{% endfor %}
+{% else %}
+   {{ leer }}
+{% endif %}
+
+3. AUSGEFÜHRTE ARBEITEN
+{% if daten.leistungen %}
+{% for leistung in daten.leistungen %}
+   {{ loop.index }}. {{ leistung.beschreibung }}{% if leistung | station %} ({{ leistung | station }}){% endif %}
+
+{% endfor %}
+{% else %}
+   {{ leer }}
+{% endif %}
+
+4. BESONDERE VORKOMMNISSE
+{% if daten.ereignisse %}
+{% for ereignis in daten.ereignisse %}
+   {{ loop.index }}. [{{ ereignis.art | ereignisart }}] {{ ereignis.beschreibung }}
+{% if ereignis.dauer_stunden is not none %}
+      Dauer: {{ ereignis.dauer_stunden | stunden }} h
+{% endif %}
+{% if ereignis | station %}
+      {{ ereignis | station }}
+{% endif %}
+{% endfor %}
+{% else %}
+   {{ leer }}
+{% endif %}
+
+5. VORSCHAU
+   {{ daten.vorschau or leer }}
+
+6. BEMERKUNGEN
+   {{ daten.bemerkungen or leer }}
+
+--------------------------------------------------------------
+Erstellt aus der Sprachnachricht des Bauleiters mit der Bautics Engine.
+Angaben ohne Nennung bleiben leer ({{ leer }}) – nichts wird ergänzt.
+Bitte vor Weitergabe an den Auftraggeber prüfen und freigeben.
