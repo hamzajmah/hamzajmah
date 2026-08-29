@@ -55,6 +55,9 @@ Baureihenfolge: **erst Echo + Mind produktionsreif**, alles andere danach.
 - `bautics/app/` – Anwendung (config, schemas, glossary, …)
 - `bautics/demo/dashboard.html` – klickbare Demo (fiktive Daten, single file)
 - Website/Konzepte entstehen als Artefakte, nicht im Repo.
+- `DESIGN.md` – verbindliche Farben und Schriften fuer alles Sichtbare.
+  Datenbank-Ziel: Postgres + pgvector auf Hetzner (Deutschland), kein
+  US-Anbieter – die Frage "wo liegen unsere Daten" entscheidet Vertraege.
 - Arbeit auf Feature-Branches, nie direkt auf den Default-Branch pushen.
 - Vor jedem Push: Tests/Lint laufen lassen, eigenen Diff kritisch gegenlesen.
 
